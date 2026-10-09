@@ -1,5 +1,11 @@
 .git
 .github
+# Runtime credentials and deployment backups must never enter an image layer.
+.env
+.env.*
+**/.env
+**/.env.*
+deploy/vps/backups
 .paperclip
 .pnpm-store
 node_modules

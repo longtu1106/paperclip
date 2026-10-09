@@ -1,0 +1,3 @@
+{$PUBLIC_FQDN} {
+    reverse_proxy paperclip:3100
+}

@@ -1,0 +1,101 @@
+name: Server image (personal VPS)
+
+on:
+  push:
+    branches: [dev/server]
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  group: personal-server-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'longtu1106/paperclip' && github.ref == 'refs/heads/dev/server'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check deployment scripts
+        run: |
+          for script in deploy/vps/*.sh; do bash -n "$script"; done
+          python3 -m unittest discover -s deploy/vps/tests -v
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: 9.15.4
+          run_install: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - name: Refresh Docker lockfile context as upstream does
+        run: |
+          set -euo pipefail
+          pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile
+          changed="$(git status --porcelain)"
+          if [ -n "$changed" ] && printf '%s\n' "$changed" | grep -Fvq ' pnpm-lock.yaml'; then
+            echo 'Unexpected change outside pnpm-lock.yaml'; exit 1
+          fi
+      - name: Free disk on this disposable hosted runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/share/swift /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+          df -h /
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - name: Build metadata
+        id: meta
+        run: |
+          {
+            echo "epoch=$(date -u +%G-W%V)"
+            echo "last=$(find packages/db/src/migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | LC_ALL=C sort | tail -1)"
+            echo "count=$(find packages/db/src/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build Linux production image (not yet published)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          target: production
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/longtu1106/paperclip-server:sha-${{ github.sha }}
+          build-args: |
+            PAPERCLIP_BUILD_VERSION=personal-${{ github.sha }}
+            PAPERCLIP_BUILD_COMMIT=${{ github.sha }}
+            CLI_TOOLS_CACHE_EPOCH=${{ steps.meta.outputs.epoch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/longtu1106/paperclip
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.github.paperclipai.schema.last-migration=${{ steps.meta.outputs.last }}
+            io.github.paperclipai.schema.migration-count=${{ steps.meta.outputs.count }}
+          cache-from: |
+            type=registry,ref=ghcr.io/longtu1106/paperclip-server:buildcache-amd64
+            type=registry,ref=ghcr.io/paperclipai/paperclip:buildcache-amd64
+          cache-to: type=registry,ref=ghcr.io/longtu1106/paperclip-server:buildcache-amd64,mode=max
+      - name: Test isolated image before publishing
+        env:
+          REVISION: ${{ github.sha }}
+        run: bash deploy/vps/smoke-image.sh "ghcr.io/longtu1106/paperclip-server:sha-$REVISION" "$REVISION"
+      - name: Publish tested image and deployment coordinates
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag="ghcr.io/longtu1106/paperclip-server:sha-$REVISION"
+          docker push "$tag"
+          image="$(docker image inspect --format '{{index .RepoDigests 0}}' "$tag")"
+          [[ "$image" =~ ^ghcr\.io/longtu1106/paperclip-server@sha256:[a-f0-9]{64}$ ]]
+          # shellcheck disable=SC2016
+          {
+            printf 'Image: `%s`\n\nCommit: `%s`\n\n' "$image" "$REVISION"
+            printf 'On VPS, after reviewing this release:\n```bash\nbash update-image.sh %s %s\n```\n' "$image" "$REVISION"
+          } >> "$GITHUB_STEP_SUMMARY"

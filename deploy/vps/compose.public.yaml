@@ -1,0 +1,36 @@
+# Use explicitly with compose.yaml. Do not also load compose.override.yaml.
+services:
+  paperclip:
+    environment:
+      PAPERCLIP_DEPLOYMENT_MODE: authenticated
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: public
+      PAPERCLIP_PUBLIC_URL: https://${PUBLIC_FQDN:?Set PUBLIC_FQDN in public.env}
+      PAPERCLIP_AUTH_BASE_URL_MODE: explicit
+      PAPERCLIP_AUTH_PUBLIC_BASE_URL: https://${PUBLIC_FQDN:?Set PUBLIC_FQDN in public.env}
+      BETTER_AUTH_URL: https://${PUBLIC_FQDN:?Set PUBLIC_FQDN in public.env}
+      BETTER_AUTH_TRUSTED_ORIGINS: https://${PUBLIC_FQDN:?Set PUBLIC_FQDN in public.env}
+      PAPERCLIP_ALLOWED_HOSTNAMES: ${PUBLIC_FQDN:?Set PUBLIC_FQDN in public.env}
+      # Existing account must be an instance administrator before enabling.
+      PAPERCLIP_AUTH_DISABLE_SIGN_UP: "true"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_FQDN: ${PUBLIC_FQDN:?Set PUBLIC_FQDN in public.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - paperclip
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  caddy-data:
+  caddy-config:

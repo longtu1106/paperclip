@@ -1,0 +1,9 @@
+.env
+.env.*
+public.env
+backups/
+*.dump
+*.tar.gz
+*.tmp
+.operation.lock
+__pycache__/
