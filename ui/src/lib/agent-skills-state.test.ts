@@ -2,9 +2,33 @@ import { describe, expect, it } from "vitest";
 import {
   applyAgentSkillSnapshot,
   isReadOnlyUnmanagedSkillEntry,
+  isCodexOperationalSkillRequired,
+  reconcileAgentSkillSave,
   sameSkillSelection,
   shouldScheduleSkillAutosave,
 } from "./agent-skills-state";
+
+describe("normalized skill saves", () => {
+  it("accepts a runtime-required skill restored by the server without resaving", () => {
+    const saved = ["paperclipai/paperclip/paperclip"];
+    const draft = reconcileAgentSkillSave([], [], saved);
+    expect(draft).toEqual(saved);
+    expect(shouldScheduleSkillAutosave({draft, lastSaved: saved, failedDraft: null})).toBe(false);
+  });
+
+  it("preserves a newer toggle made while an earlier save was pending", () => {
+    expect(reconcileAgentSkillSave(["reviewer"], [], ["paperclip"]))
+      .toEqual(["reviewer"]);
+  });
+
+  it("locks only the operational skill on the Codex legacy adapter", () => {
+    const key = "paperclipai/paperclip/paperclip";
+    expect(isCodexOperationalSkillRequired("codex_local", key)).toBe(true);
+    expect(isCodexOperationalSkillRequired("codex_local", "company/reviewer")).toBe(false);
+    expect(isCodexOperationalSkillRequired("paperclip_runner", key)).toBe(false);
+    expect(isCodexOperationalSkillRequired("process", key)).toBe(false);
+  });
+});
 
 describe("sameSkillSelection", () => {
   it("treats selections as order-independent sets", () => {

@@ -19,6 +19,8 @@ import { PageSkeleton } from "../../components/PageSkeleton";
 import {
   applyAgentSkillSnapshot,
   isReadOnlyUnmanagedSkillEntry,
+  isCodexOperationalSkillRequired,
+  reconcileAgentSkillSave,
   sameSkillSelection,
   shouldScheduleSkillAutosave,
 } from "../../lib/agent-skills-state";
@@ -113,7 +115,10 @@ export function AgentSkillsTab({ agent, companyId }: { agent: Agent; companyId?:
   const syncSkills = useMutation({
     mutationFn: (desiredSkills: Array<string | AgentDesiredSkillEntry>) =>
       agentsApi.syncSkills(agent.id, desiredSkills, "replace", companyId),
-    onSuccess: async (snapshot) => {
+    onSuccess: async (snapshot, attemptedDesiredSkills) => {
+      setSkillDraft((current) => reconcileAgentSkillSave(
+        current, attemptedDesiredSkills.map(desiredSkillKey), snapshot.desiredSkills,
+      ));
       queryClient.setQueryData(queryKeys.agents.skills(agent.id), snapshot);
       lastSavedSkillsRef.current = snapshot.desiredSkills;
       setLastSavedSkills(snapshot.desiredSkills);
@@ -322,6 +327,7 @@ export function AgentSkillsTab({ agent, companyId }: { agent: Agent; companyId?:
   const hasUnsavedChanges = !sameSkillSelection(skillDraft, lastSavedSkills);
 
   const toggleSkill = (key: string, next: boolean) => {
+    if (!next && isCodexOperationalSkillRequired(agent.adapterType, key)) return;
     setSkillDraft((current) =>
       next
         ? Array.from(new Set([...current, key]))
@@ -351,10 +357,13 @@ export function AgentSkillsTab({ agent, companyId }: { agent: Agent; companyId?:
     const legacyPaperclipBlocked = agent.adapterType === "paperclip_runner"
       && variant === "available"
       && row.key === PAPERCLIP_CORE_SKILL_KEY;
-    const rowDisabled = unsupported || legacyPaperclipBlocked;
+    const requiredOperationalSkill = isCodexOperationalSkillRequired(agent.adapterType, row.key);
+    const rowDisabled = unsupported || legacyPaperclipBlocked || requiredOperationalSkill;
     const rowDisabledReason = legacyPaperclipBlocked
       ? "Paperclip Runner uses native semantic coordination and cannot attach the legacy Paperclip operational skill."
-      : unsupportedMessage;
+      : requiredOperationalSkill
+        ? "Required by the Codex adapter for task coordination and status updates. This runtime always mounts it."
+        : unsupportedMessage;
     const showReleasePicker =
       releasePickerActive && variant === "enabled" && row.key === PAPERCLIP_CORE_SKILL_KEY;
     const pinnedVersionId = versionPins[row.key] ?? null;
@@ -372,7 +381,9 @@ export function AgentSkillsTab({ agent, companyId }: { agent: Agent; companyId?:
         disabledReason={rowDisabledReason}
         onCheckedChange={(next) => toggleSkill(row.key, next)}
         badge={
-          showReleasePicker && pinnedRelease ? (
+          requiredOperationalSkill ? (
+            <Badge variant="secondary" className="text-(length:--text-nano)">Required by runtime</Badge>
+          ) : showReleasePicker && pinnedRelease ? (
             <Badge variant="secondary" className="text-(length:--text-nano)">
               Beta · {releaseShortLabel(pinnedRelease)}
             </Badge>

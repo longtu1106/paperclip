@@ -34,6 +34,19 @@ export function sameSkillSelection(a: string[], b: string[]): boolean {
   return true;
 }
 
+/** Adopt a normalized save response only if the user has not edited since it. */
+export function reconcileAgentSkillSave(
+  draft: string[], attempted: string[], saved: string[],
+): string[] {
+  return sameSkillSelection(draft, attempted) ? saved : draft;
+}
+
+/** Matches the Codex adapter's legacy runtime resolver, not user preferences. */
+export function isCodexOperationalSkillRequired(adapterType: string, key: string): boolean {
+  return adapterType === "codex_local"
+    && key.trim().toLowerCase() === "paperclipai/paperclip/paperclip";
+}
+
 export function applyAgentSkillSnapshot(
   state: AgentSkillDraftState,
   desiredSkills: string[],
