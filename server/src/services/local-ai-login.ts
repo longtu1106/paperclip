@@ -50,6 +50,14 @@ function sameTarget(a: AiConnectionLoginIntent, b: AiConnectionLoginIntent) {
 // shared so status polling and code submission can reach the original process.
 const browserLogins = new Map<string, LocalBrowserLoginState>();
 
+async function readAttemptCredential(provider: AiConnectionLoginIntent["provider"], directory: string, id?: string) {
+  // Only reached after validating the attempt's company, owner and intent.
+  // Windows Claude setup-token retains its completed exchange in memory,
+  // avoiding Unix-only credential file permissions and confined file opens.
+  const credential = provider === "anthropic" && id ? browserLogins.get(id)?.readCredential?.() : null;
+  return credential ?? readVerifiedLocalAiCredential(provider, directory);
+}
+
 /** Local sign-ins share the durable attempt/credential lifecycle, but never seed
  * their home from the operator's rotating CLI credential. */
 export function localAiLoginService(db: Db) {
@@ -158,12 +166,16 @@ export function localAiLoginService(db: Db) {
       ));
       if (!session?.aiConnection || !sameTarget(session.aiConnection, intent))
         throw notFound("Local sign-in attempt not found for this connection.");
+      // Completion removes the temporary login home, but focus/status polling
+      // can still arrive while the agent's provider validation is running.
+      if (session.status === "authenticated" && session.connectionId && session.connectionGrantId)
+        return { status: "ready" };
       if (session.status !== "waiting_for_user" || !session.expiresAt || session.expiresAt.getTime() <= Date.now())
         return { status: "expired" };
       directory = loginHome(id);
     }
     try {
-      await readVerifiedLocalAiCredential(intent.provider, directory);
+      await readAttemptCredential(intent.provider, directory, id);
       return { status: "ready" };
     } catch {
       const login = id ? browserLogins.get(id) : undefined;
@@ -214,7 +226,7 @@ export function localAiLoginService(db: Db) {
       if (session.connectionMethod !== LOCAL_LOGIN_METHOD || session.status !== "waiting_for_user" ||
           !session.expiresAt || session.expiresAt.getTime() <= Date.now())
         throw unprocessable("This sign-in attempt has expired or was cancelled. Start sign-in again.");
-      const credential = await readVerifiedLocalAiCredential(intent.provider, loginHome(id));
+      const credential = await readAttemptCredential(intent.provider, loginHome(id), id);
       await tx.update(adapterAuthSessions).set({ status: "promoting", updatedAt: new Date() })
         .where(eq(adapterAuthSessions.id, id));
       // Nested transaction is a savepoint on this same connection. Holding the

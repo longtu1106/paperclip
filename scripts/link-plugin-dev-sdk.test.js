@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
 import { linkSdkInto, readPluginsUnder } from "./link-plugin-dev-sdk.mjs";
+
+const sdkDir = resolve(dirname(fileURLToPath(import.meta.url)), "../packages/plugins/sdk");
 
 let workDir;
 
@@ -61,6 +64,7 @@ test("linkSdkInto creates the plugin-sdk symlink and is idempotent", () => {
 
   const link = join(pkg, "node_modules", "@paperclipai", "plugin-sdk");
   assert.ok(lstatSync(link).isSymbolicLink());
+  assert.equal(resolve(dirname(link), readlinkSync(link)), sdkDir);
 
   // Second call is a no-op because the link already points at the in-repo SDK.
   assert.equal(linkSdkInto(pkg), false);
@@ -81,9 +85,12 @@ test("linkSdkInto replaces a symlink that points somewhere else", () => {
   const pkg = makePackage(join(workDir, "stale-link"));
   const scopeDir = join(pkg, "node_modules", "@paperclipai");
   mkdirSync(scopeDir, { recursive: true });
-  symlinkSync("../somewhere-else", join(scopeDir, "plugin-sdk"), "dir");
+  const oldSdk = makePackage(join(pkg, "somewhere-else"));
+  symlinkSync(process.platform === "win32" ? oldSdk : "../../somewhere-else",
+    join(scopeDir, "plugin-sdk"), process.platform === "win32" ? "junction" : "dir");
 
   assert.equal(linkSdkInto(pkg), true);
-  assert.notEqual(readlinkSync(join(scopeDir, "plugin-sdk")), "../somewhere-else");
+  assert.equal(resolve(scopeDir, readlinkSync(join(scopeDir, "plugin-sdk"))), sdkDir);
+  assert.ok(existsSync(join(oldSdk, "package.json")));
   assert.ok(existsSync(scopeDir));
 });

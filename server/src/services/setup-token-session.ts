@@ -1585,6 +1585,9 @@ export function createDbSetupTokenCleanupStore(db: Db): SetupTokenCleanupStore {
         .where(
           and(
             eq(adapterAuthSessions.adapterType, SETUP_TOKEN_ADAPTER_TYPE),
+            // Local subscription attempts share this table but own no sandbox
+            // lease. Their home/process cleanup belongs to localAiLoginService.
+            isNotNull(adapterAuthSessions.providerLeaseId),
             or(
               inArray(adapterAuthSessions.status, [...SETUP_TOKEN_TERMINAL_STATES]),
               lte(adapterAuthSessions.expiresAt, new Date(now)),

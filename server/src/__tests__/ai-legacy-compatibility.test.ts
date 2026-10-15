@@ -146,6 +146,9 @@ it("isolates sign-in and refresh from the host, survives restart, and completes 
   ]);
   expect(results[0]).toEqual(results[1]);
   await expect(readFile(path.join(directory, "auth.json"))).rejects.toHaveProperty("code", "ENOENT");
+  expect(await localAiLoginService(db).check(companyId, owner, loginIntent(), attempt.sessionId)).toEqual({ status: "ready" });
+  await expect(login.check(companyId, "another-owner", loginIntent(), attempt.sessionId)).rejects.toThrow("not found");
+  await expect(login.check(companyId, owner, { ...loginIntent(), ownership: "shared" }, attempt.sessionId)).rejects.toThrow("not found");
   const input = { companyId, agentId, adapterType: "codex_local", responsibleUserId: owner, binding: { provider: "openai", method: "subscription", mode: "responsible_user" } as const, config: { cwd: home, model: "unchanged-model" } };
   const run = await prepareManagedAiRuntime(db, input);
   const credentialFile = path.join(String(run.config.env.CODEX_HOME), "auth.json");

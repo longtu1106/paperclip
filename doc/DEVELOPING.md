@@ -53,6 +53,19 @@ pnpm install
 pnpm dev
 ```
 
+On Windows, the postinstall SDK links use directory junctions, so this step
+does not require Administrator privileges or Windows Developer Mode.
+Local OpenAI subscription sign-in invokes `codex.exe login --device-auth`
+directly on Windows; ensure `codex.exe` is on the Paperclip host's PATH.
+Local Claude subscription sign-in uses the optional `node-pty` ConPTY transport
+on Windows. Install the native Claude Code CLI separately (`claude.exe` on PATH
+or in `~/.local/bin`). Windows Claude login tokens remain in memory until the
+owner completes connection creation in the vault; restart sign-in after a server
+restart. Raw terminal output is never logged. Unix retains its Python PTY bridge.
+Completed local sign-in attempts remain ready during subsequent agent validation.
+The sandbox setup-token reaper only selects attempts with a provider lease;
+local subscription attempts are cleaned up by their own lifecycle.
+
 This starts:
 
 - API server: `http://localhost:3100`

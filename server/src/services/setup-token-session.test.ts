@@ -1515,6 +1515,15 @@ describeEmbeddedPostgres("durable setup-token cleanup store (embedded postgres)"
     const liveStored = await seedScope();
     await insertRecord(liveStored, "stored", now + 60_000);
 
+    // Local Claude attempts have no provider lease and use a separate reaper.
+    const local = await seedScope();
+    await db.insert(adapterAuthSessions).values({
+      publicSessionId: local.sessionId, companyId: local.companyId,
+      environmentId: local.environmentId, startedByUserId: local.ownerUserId,
+      adapterType: "claude_local", connectionMethod: "local_subscription",
+      status: "cancelled", expiresAt: new Date(now - 1_000), providerLeaseId: null,
+    });
+
     const reapable = await store.listReapable(now);
     const ids = new Set(reapable.map((record) => record.sessionId));
     expect(ids.has(terminal.sessionId)).toBe(true);
@@ -1522,6 +1531,7 @@ describeEmbeddedPostgres("durable setup-token cleanup store (embedded postgres)"
     expect(ids.has(consumed.sessionId)).toBe(true);
     // A live, unexpired, unconsumed stored claim is not reapable.
     expect(ids.has(liveStored.sessionId)).toBe(false);
+    expect(ids.has(local.sessionId)).toBe(false);
   });
 
   it("returns no row when the claim row lock holds until after the deadline", async () => {
