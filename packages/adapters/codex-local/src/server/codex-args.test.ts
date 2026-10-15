@@ -2,6 +2,22 @@ import { describe, expect, it } from "vitest";
 import { buildCodexExecArgs } from "./codex-args.js";
 
 describe("buildCodexExecArgs", () => {
+  it("places explicit headless approvals before exec without bypassing the sandbox", () => {
+    const { args } = buildCodexExecArgs({ dangerouslyBypassApprovalsAndSandbox: false, cliApprovalPolicy: "never", extraArgs: ["--add-dir", "C:/", "--add-dir", "E:/"] });
+    expect(args.slice(0, 4)).toEqual(["--ask-for-approval", "never", "exec", "--json"]);
+    expect(args).toContain('sandbox_mode="workspace-write"');
+    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(args).toContain("C:/");
+    expect(args).toContain("E:/");
+    expect(() => buildCodexExecArgs({ cliApprovalPolicy: "unrecognised" })).toThrow("Unsupported Codex CLI approval policy");
+  });
+  it("forwards an explicit Windows implementation independently of drive access and approvals", () => {
+    const { args } = buildCodexExecArgs({ dangerouslyBypassApprovalsAndSandbox: false, cliApprovalPolicy: "never", windowsSandbox: "mxc", extraArgs: ["--add-dir", "C:/", "--add-dir", "E:/"] });
+    expect(args).toContain('windows.sandbox="mxc"');
+    expect(args).toContain('sandbox_mode="workspace-write"');
+    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(() => buildCodexExecArgs({ windowsSandbox: "unknown" })).toThrow("Unsupported Windows sandbox implementation");
+  });
   it.each([null, "existing-session"])("defaults direct and resumed launches to full bypass (%s)", (resumeSessionId) => {
     const { args } = buildCodexExecArgs({}, { resumeSessionId });
     expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");

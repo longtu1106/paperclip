@@ -64,6 +64,15 @@ export function buildCodexExecArgs(
     asBoolean(record.dangerouslyBypassSandbox, !explicitSandbox && !explicitPermissionRestriction && options.networkAccess !== false && DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX),
   );
   const args = ["exec", "--json"];
+  const cliApprovalPolicy = asString(record.cliApprovalPolicy, "").trim();
+  if (cliApprovalPolicy) {
+    if (!["never", "on-request", "untrusted"].includes(cliApprovalPolicy)) {
+      throw new Error("Unsupported Codex CLI approval policy");
+    }
+    // This is a root CLI option, not an `exec` option. In non-interactive
+    // Windows runs, untrusted commands otherwise have no approval UI.
+    args.unshift("--ask-for-approval", cliApprovalPolicy);
+  }
   if (!bypass && !explicitSandbox) {
     args.push("-c", 'sandbox_mode="workspace-write"');
     args.push("-c", `sandbox_workspace_write.network_access=${options.networkAccess !== false}`);
@@ -79,6 +88,13 @@ export function buildCodexExecArgs(
   if (search) args.unshift("--search");
   if (bypass) args.push("--dangerously-bypass-approvals-and-sandbox");
   if (model) args.push("--model", model);
+  const windowsSandbox = asString(record.windowsSandbox, "").trim();
+  if (windowsSandbox) {
+    if (!["mxc", "elevated", "unelevated"].includes(windowsSandbox)) {
+      throw new Error("Unsupported Windows sandbox implementation");
+    }
+    args.push("-c", `windows.sandbox=${JSON.stringify(windowsSandbox)}`);
+  }
   if (modelReasoningEffort) {
     args.push("-c", `model_reasoning_effort=${JSON.stringify(modelReasoningEffort)}`);
   }

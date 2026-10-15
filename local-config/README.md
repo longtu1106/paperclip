@@ -9,6 +9,10 @@ Nguồn Git chỉ chứa hướng dẫn vai trò và skill; mỗi máy giữ dat
 - `skills/ifixai-audit/SKILL.md`: skill tùy chỉnh từ VPS, sửa phần runtime để dùng trên Windows. Chưa cài engine/adapter iFixAi cho Windows.
 - `windows-tools.json`: pin Codex CLI native ổn định, dùng riêng cho profile Windows. Sau clone/pull chạy `node scripts/windows-local-codex.mjs install`; binary chỉ lưu trong `data/windows-tools/`, không đồng bộ credential qua Git.
 
+Ngày 16/10/2026, user cho phép nhập 33 skill cá nhân (ưu tiên Codex khi trùng Claude), thêm quy tắc đọc docs/cách xưng hô mày–tao, và truy cập C:/E: bằng quyền user Windows. Dùng `node scripts/windows-local-context.mjs` để xem trước, thêm `--apply` để nhập và áp dụng cho ba agent idle/paused của Longtu Local. Script kiểm tra đọc docs trong sandbox Windows restricted-token trước, giữ bản gốc và mọi agent/account/model hiện hữu, bảo lưu instructions cũ bằng block được đánh dấu, so sánh hash để không ghi đè skill đã sửa khác trên dashboard, và tạo backup/receipt local.
+
+Bản sao đủ 71 file skill cá nhân nằm trong dữ liệu company local, không được publish lên GitHub. Sau pull trên PC công ty, script đọc bộ skill có sẵn tại `%USERPROFILE%/.codex/skills`, `.agents/skills`, `.claude/skills` của chính máy đó. Plugin/system skills không nằm trong đợt nhập 33 skill đã được chốt. MCP là bước tích hợp riêng, xem `../doc/WINDOWS-MCP.md`.
+
 Các skill Paperclip built-in đã nằm trong repo upstream, không copy bản thứ hai. VNG single/complicate và MCP Desktop chưa được tự động nhập; lựa chọn các skill chuyên môn vẫn do user quản lý trên Paperclip.
 
 Chạy `node scripts/windows-local-bootstrap.mjs` để tạo hoặc tái dùng company `Longtu Local` và nhập skill `ifixai-audit` vào thư viện. Lệnh không chạy agent, không tạo task và không ghi đè skill đã được sửa khác trên dashboard. Receipt chỉ ở dữ liệu local, không đưa vào Git.

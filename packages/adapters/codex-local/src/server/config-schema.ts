@@ -23,6 +23,32 @@ export function getConfigSchema(): AdapterConfigSchema {
         hint: "Default uses ACP. If ACP is unavailable, the run fails with a setup error. Choose CLI explicitly to use it.",
       },
       {
+        key: "cliApprovalPolicy",
+        label: "CLI command approvals",
+        type: "select",
+        options: [
+          { value: "", label: "CLI default" },
+          { value: "never", label: "Run within sandbox without prompts" },
+          { value: "on-request", label: "Ask when requested" },
+          { value: "untrusted", label: "Ask for untrusted commands" },
+        ],
+        hint: "CLI only. Never keeps sandbox restrictions and does not allow elevation; background runs have no interactive approval terminal.",
+        meta: { visibleWhen: { key: "engine", values: ["cli"] } },
+      },
+      {
+        key: "windowsSandbox",
+        label: "Windows sandbox (CLI)",
+        type: "select",
+        options: [
+          { value: "", label: "CLI default" },
+          { value: "mxc", label: "Microsoft Execution Containers (MXC)" },
+          { value: "elevated", label: "Provisioned legacy sandbox" },
+          { value: "unelevated", label: "Legacy restricted token" },
+        ],
+        hint: "Windows CLI only. Verify MXC support before selecting it. Legacy elevated setup is a separate administrator action.",
+        meta: { visibleWhen: { key: "engine", values: ["cli"] } },
+      },
+      {
         key: "agentCommand",
         label: "ACP server command",
         type: "text",

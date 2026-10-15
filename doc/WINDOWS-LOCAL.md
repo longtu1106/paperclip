@@ -1,6 +1,6 @@
 # Paperclip native Windows - PC nhà và PC công ty
 
-Cập nhật 15/10/2026. Source chính: `E:\ProjectVNG\paperclip`, fork `https://github.com/longtu1106/paperclip.git`, nhánh `dev/windows-local`. Upstream chính chủ: `https://github.com/paperclipai/paperclip.git`.
+Cập nhật 16/10/2026. Source chính: `E:\ProjectVNG\paperclip`, fork `https://github.com/longtu1106/paperclip.git`, nhánh `dev/windows-local`. Upstream chính chủ: `https://github.com/paperclipai/paperclip.git`.
 
 ## Mô hình đã chọn
 
@@ -83,6 +83,30 @@ Backup filesystem ở `data/windows-backups/`, có DB, config, storage, agent fi
 - Agent mới: `codex_local`, engine `cli`, model cấu hình `gpt-6.1-sol`, sandbox read-only, bypass=false, Pause và heartbeat tự động tắt. Mỗi tài khoản cần login/test riêng trước khi chạy.
 - Chọn đúng project và cwd local rồi cấp workspace-write cho task lập trình/build/test cần ghi. Không bật full access toàn PC để chữa lỗi đường dẫn.
 - MCP, skill Codex/Claude Desktop, Google Drive và quyền ADB không tự được thừa kế. Mỗi project cần cấu hình và kiểm chứng riêng. Chưa chạy task DatVietMap hoặc sửa source app trong bước này.
+
+## Skill cá nhân, docs chung và quyền C:/E:
+
+Theo yêu cầu ngày 16/10/2026, đã nhập 33 skill cá nhân khác tên, đủ 71 file gồm references/scripts/assets. Ưu tiên bản Codex khi trùng Claude; giữ nguyên các thư mục nguồn. Các skill plugin/system như Figma vẫn cần plugin/tool tương ứng và không thuộc đợt nhập 33 skill này.
+
+- Culi 1 được gán 19 skill cá nhân cho điều phối/kiến trúc; Culi 2 có 24 cho lập trình; Culi 3 có 23 cho review/kiểm thử. Skill built-in/ifixai đang có được giữ nguyên.
+- Cả ba có human-ui, single, complicate và ba UI preset. Chọn workflow theo phạm vi; chỉ áp preset user đã chọn, không kích hoạt tất cả quy trình cho mọi task.
+- Quy tắc chung yêu cầu đọc AGENTS.md/README của repo, docs/convention/API/Admin liên quan tại `E:/ProjectVNG/docsVNG` trước khi lập plan/code và đối chiếu lại khi phase/contract đổi. Không đọc toàn bộ kho docs mỗi lượt.
+- Agent xưng tao, gọi chủ sở hữu là mày, trao đổi bình đẳng và phản biện bằng bằng chứng theo yêu cầu của chính chủ. Không tự áp cách xưng hô này vào nội dung công khai hoặc với người khác.
+- Runtime cho phép C:/ và E:/ bằng quyền user Windows. Extra args dùng `--add-dir` cho hai ổ, bỏ `read-only` cũ. Bypass=false, CLI command approvals=never và Windows sandbox=unelevated; agent chỉ sửa phạm vi task được giao. Never ở CLI không bỏ các gate duyệt plan/phase của Paperclip, không cấp Administrator và không vượt Windows ACL.
+
+MXC đã chạy được nhưng không đọc được junction docs trên Google Drive của PC nhà. Sandbox unelevated dùng restricted token của user và đã đọc được cùng file đó; network isolation của nó yếu hơn legacy elevated. Không tự chạy setup elevated/UAC. Kiểm chứng thực tế đã đọc thành công một file C:, một file E: và feature-workflow.md qua junction, không ghi source. Đây không phải bằng chứng mọi thư mục hệ thống/protected đều đọc được.
+
+```powershell
+# Xem danh sách skill và phạm vi trước khi áp dụng trên chính PC này.
+node scripts/windows-local-context.mjs
+
+# Khi ba agent idle/paused và không có task in_progress: nhập/cấu hình.
+node scripts/windows-local-context.mjs --apply
+```
+
+Script tạo backup config/instructions trong `data/windows-home/windows-runtime/context-backups/`, giữ agent/account/model và không ghi đè skill đã sửa khác trên dashboard. Chạy lại có đối chiếu hash. Bản sao 71 file chỉ ở data local, không publish lên Git. PC công ty cần cài sẵn skill cá nhân và docs ở đường dẫn đã kiểm tra; Git chỉ mang helper/templates. Các thay đổi này áp dụng ở lượt chạy tiếp theo, session cũ có thể cần lượt chạy mới để nhận skill/instructions.
+
+Receipt skill: `personal-context.json`, `personal-skills-runtime.json`; bằng chứng đọc thật: `personal-context-read-probe.json`, cùng nằm trong runtime directory. MCP là bước kết nối riêng; xem `doc/WINDOWS-MCP.md` để biết HTTP/stdio và giới hạn import hiện tại.
 
 ## Codex CLI riêng cho Paperclip
 
