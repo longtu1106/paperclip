@@ -27,6 +27,9 @@ npx.cmd --yes pnpm@9.15.4 install --frozen-lockfile
 node scripts/windows-local.mjs setup
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-local-protect.ps1
 
+# Cài Codex CLI đúng bản pin, riêng cho Paperclip.
+node scripts/windows-local-codex.mjs install
+
 # Kiểm tra CLI, cấu hình, port; chạy server nền ở chế độ bảo trì ban đầu.
 node scripts/windows-local.mjs doctor
 node scripts/windows-local.mjs start
@@ -77,9 +80,29 @@ Backup filesystem ở `data/windows-backups/`, có DB, config, storage, agent fi
 - Skill built-in `paperclip` do runtime cung cấp; không tắt hoặc tạo bản copy thứ hai. Upstream hiện cũng gán `complain` và `suggestion-box` theo runtime defaults.
 - Skill tùy chỉnh `ifixai-audit` được nhập từ `local-config/skills/ifixai-audit/SKILL.md`. Đã sửa chỉ dẫn runtime Windows; chưa cài engine iFixAi/adapter cho Windows, chưa chạy audit live.
 - Hướng dẫn nhóm nằm tại `local-config/agent-roles/`. Culi 1 điều phối, Culi 2 lập trình, Culi 3 review/kiểm thử. Các bản này đã dùng trên VPS; không mang theo ID hay tài khoản VPS.
-- Agent mới: `codex_local`, engine `cli`, model cấu hình `gpt-6.1-sol`, sandbox read-only, bypass=false, Pause và heartbeat tự động tắt. Chưa xác nhận model có trên tài khoản trước khi login/test.
+- Agent mới: `codex_local`, engine `cli`, model cấu hình `gpt-6.1-sol`, sandbox read-only, bypass=false, Pause và heartbeat tự động tắt. Mỗi tài khoản cần login/test riêng trước khi chạy.
 - Chọn đúng project và cwd local rồi cấp workspace-write cho task lập trình/build/test cần ghi. Không bật full access toàn PC để chữa lỗi đường dẫn.
 - MCP, skill Codex/Claude Desktop, Google Drive và quyền ADB không tự được thừa kế. Mỗi project cần cấu hình và kiểm chứng riêng. Chưa chạy task DatVietMap hoặc sửa source app trong bước này.
+
+## Codex CLI riêng cho Paperclip
+
+Profile Windows dùng bản ổn định `0.162.1`, được pin trong `local-config/windows-tools.json`. Binary và tài nguyên cài ở `data/windows-tools/codex-0.162.1/`, không đưa vào Git. PATH của riêng server ưu tiên bản này; không sửa PATH Windows hoặc CLI của Desktop.
+
+```powershell
+# Sau clone/pull khi pin CLI thay đổi: cài đúng phiên bản, không cài global.
+node scripts/windows-local-codex.mjs install
+
+# Khi không có task đang chạy: restart để server nhận PATH mới.
+node scripts/windows-local.mjs stop
+node scripts/windows-local.mjs start
+node scripts/windows-local.mjs doctor
+```
+
+Alias cài đặt là `pnpm windows:codex-install`. Lệnh chạy lại sẽ kiểm tra và tái dùng đúng bản đã cài. `doctor` cần hiện `managedCodex.installed=true` và `codex-cli 0.162.1`. Nếu thiếu package hoặc sai phiên bản/layout, start yêu cầu cài lại thay vì âm thầm dùng CLI cũ. Các phiên bản đã cài được giữ riêng để đối chiếu; không tự cập nhật CLI mỗi lần khởi động.
+
+Ngày 15/10/2026, cùng tài khoản Minh Nguyen: CLI cũ `0.157.1` không có `gpt-6.1-sol`; CLI `0.162.1` có model này và kiểm tra `codex_hello_probe_passed` qua API Paperclip đã PASS. Receipt local: `data/windows-home/windows-runtime/model-6.1-test.json`. Model còn phụ thuộc tài khoản; ở máy khác vẫn phải đăng nhập và Test connection. Nếu form Runtime đang báo lỗi cũ, bấm Test lại rồi Save changes. Phép thử không đổi model, account, sandbox hoặc trạng thái Pause của agent.
+
+Phần này dành cho execution engine `Codex CLI`. Engine ACP có dependency riêng của upstream. Khi chủ động nâng tiếp CLI, sửa pin bằng commit riêng, cài bản đó, kiểm tra doctor/model/hello và restart khi task đã kết thúc; không trỏ cố định vào thư mục alpha có mã hash của Desktop.
 
 ## Dùng Git để chỉnh sửa và cập nhật
 
@@ -126,4 +149,4 @@ Khi chỉnh tính năng của Paperclip: UI được Vite cập nhật trong lú
 - Đã kiểm tra shutdown, khởi động lại và tạo backup offline. Bootstrap lặp lại không tạo trùng company/skill/3 agent.
 - Các test login Windows và SDK junction được chạy riêng; xem receipt trong `data/windows-home/windows-runtime/verification.json`.
 - Chưa chứng nhận toàn bộ monorepo `pnpm build` trên Windows. Pipeline release/Rust native Runner và một số build scripts upstream vẫn có phụ thuộc riêng; profile này dùng direct CLI adapters và tắt Experimental Native Runner.
-- Chưa login tài khoản AI mới, chưa chạy hello/billable agent, chưa nối MCP/project công ty. Những việc này thực hiện trên từng PC sau khi nhận source từ Git.
+- Đã kiểm tra danh sách model và hello GPT-6.1 Sol với connection Minh Nguyen bằng CLI 0.162.1, không tạo task hoặc sửa source project. 15 test Node cho profile Windows/CLI/SDK junction đã đạt. Chưa xác minh mọi tài khoản, MCP hoặc project công ty; những việc này thực hiện trên từng PC.

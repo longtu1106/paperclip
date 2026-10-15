@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "windows:setup": "node scripts/windows-local.mjs setup",
+    "windows:codex-install": "node scripts/windows-local-codex.mjs install",
     "windows:bootstrap": "node scripts/windows-local-bootstrap.mjs",
     "windows:start": "node scripts/windows-local.mjs start",
     "windows:stop": "node scripts/windows-local.mjs stop",

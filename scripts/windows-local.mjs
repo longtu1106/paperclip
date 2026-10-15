@@ -4,6 +4,7 @@ import net from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { codexSelection, validateCodex } from "./windows-local-codex.mjs";
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const homeRoot = path.join(repoRoot, "data", "windows-home");
@@ -106,7 +107,12 @@ export function childEnvironment(input = process.env) {
   const env = Object.fromEntries(Object.entries(input).filter(([key]) => allowed.test(key)));
   env.PATH = env.Path ?? env.PATH ?? "";
   delete env.Path;
-  env.PATH = [path.dirname(process.execPath), path.join(input.USERPROFILE ?? "", ".local", "bin"), path.join(input.LOCALAPPDATA ?? "", "Programs", "OpenAI", "Codex", "bin"), env.PATH].join(path.delimiter);
+  const codex = codexSelection();
+  env.PATH = [...codex.pathDirs, path.dirname(process.execPath), path.join(input.USERPROFILE ?? "", ".local", "bin"), env.PATH].join(path.delimiter);
+  // Match the official npm launcher metadata while using the native executable
+  // so the adapter still recognises Codex and performs its provider hello test.
+  env.CODEX_MANAGED_PACKAGE_ROOT = codex.packageRoot;
+  env.CODEX_MANAGED_BY_NPM = "1";
   Object.assign(env, {
     PAPERCLIP_HOME: homeRoot, PAPERCLIP_INSTANCE_ID: "default", PAPERCLIP_CONFIG: configPath,
     PAPERCLIP_DISABLE_CWD_ENV_FILE: "true",
@@ -203,6 +209,7 @@ async function startLocked() {
   if (before.running) return before;
   if (!await portAvailable() || !await portAvailable(databasePort)) throw new Error("HTTP or database port is occupied; no process was stopped.");
   if (!fs.existsSync(tsxLoader)) throw new Error("Install the repo dependencies first.");
+  validateCodex(codexSelection()); // Never silently fall back to an older Desktop/global CLI.
   let preStartupBackup;
   const head = sourceHead();
   if (fs.existsSync(path.join(instanceRoot, "db", "PG_VERSION")) &&
@@ -277,11 +284,15 @@ export async function main(args = process.argv.slice(2)) {
   }
   if (action === "doctor") {
     const env = childEnvironment();
+    const selected = codexSelection();
+    let managedCodex;
+    try { validateCodex(selected); managedCodex = { installed: true, version: selected.version, executable: selected.executable }; }
+    catch (error) { managedCodex = { installed: false, version: selected.version, executable: selected.executable, error: error.message }; }
     const cli = Object.fromEntries(["codex.exe", "claude.exe", "git.exe"].map((command) => {
       const result = spawnSync(command, ["--version"], { env, timeout: 10000, encoding: "utf8", windowsHide: true });
       return [command, { available: result.status === 0, version: result.status === 0 ? result.stdout.trim().split(/\r?\n/)[0] : null }];
     }));
-    return { platform: process.platform, node: process.version, nodeSupported: supportedNode(process.versions.node), cli,
+    return { platform: process.platform, node: process.version, nodeSupported: supportedNode(process.versions.node), cli, managedCodex,
       tsxInstalled: fs.existsSync(tsxLoader), configPresent: fs.existsSync(configPath),
       configValid: fs.existsSync(configPath) ? !!validateConfig(readJson(configPath)) : false,
       httpPortFree: await portAvailable(), databasePortFree: await portAvailable(databasePort),

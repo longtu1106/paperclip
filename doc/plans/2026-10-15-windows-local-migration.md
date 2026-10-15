@@ -16,3 +16,9 @@ User decision, 2026-10-15: `E:\ProjectVNG\paperclip` is the primary maintained f
 Keep the user's pre-existing Windows login/junction patches and verify their targeted tests. Preserve local old DB roots and VPS. Never put runtime state, session keys or logs in Git. No source changes to DatVietMap, no requirement to move its checkout.
 
 Targeted tests and actual local API/lifecycle/bootstrap checks are required. This is a local operational profile, not a claim that every upstream build/release/Rust lane supports Windows. Provider login and project/MCP qualification remain per machine. See `../WINDOWS-LOCAL.md`.
+
+## Follow-up: pin the CLI used by the Windows server
+
+The user authorised upgrading/selecting Paperclip's Codex CLI. The inherited PATH selected 0.157.1 while Desktop used a newer bundled executable; the same managed ChatGPT connection exposed GPT-6.1 Sol only on the newer client. Install stable 0.162.1 into ignored repo-local tooling, keep an exact version pin in Git and put its native binary/resources on the server-only PATH. Do not modify Desktop/global installs, model/account bindings, sandbox permissions or paused agents. Reject missing/mismatched packages before startup; company-PC installation remains explicit after pull.
+
+Validation: 15 Node profile/CLI/junction tests passed; installer/version and restarted server health passed; model/list included GPT-6.1 Sol and the actual Paperclip codex_hello_probe_passed check passed for Minh Nguyen on 0.162.1. An offline instance backup preceded the restart. This does not upgrade the separate ACP dependency or qualify every connected account/project.

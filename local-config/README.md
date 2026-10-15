@@ -7,6 +7,7 @@ Nguồn Git chỉ chứa hướng dẫn vai trò và skill; mỗi máy giữ dat
 - `agent-roles/developer.md`: Culi 2 lập trình.
 - `agent-roles/reviewer-qa.md`: Culi 3 review/kiểm thử.
 - `skills/ifixai-audit/SKILL.md`: skill tùy chỉnh từ VPS, sửa phần runtime để dùng trên Windows. Chưa cài engine/adapter iFixAi cho Windows.
+- `windows-tools.json`: pin Codex CLI native ổn định, dùng riêng cho profile Windows. Sau clone/pull chạy `node scripts/windows-local-codex.mjs install`; binary chỉ lưu trong `data/windows-tools/`, không đồng bộ credential qua Git.
 
 Các skill Paperclip built-in đã nằm trong repo upstream, không copy bản thứ hai. VNG single/complicate và MCP Desktop chưa được tự động nhập; lựa chọn các skill chuyên môn vẫn do user quản lý trên Paperclip.
 
