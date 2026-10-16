@@ -2,6 +2,8 @@
 
 Nguồn Git chỉ chứa hướng dẫn vai trò và skill; mỗi máy giữ database, tài khoản AI, MCP credentials và đường dẫn project riêng trong `data/windows-home/` (đã được Git bỏ qua).
 
+Setup và prompt bàn giao dành cho Codex trên PC công ty: [WINDOWS-COMPANY-SETUP.md](../doc/WINDOWS-COMPANY-SETUP.md).
+
 - `agent-roles/common.md`: quy tắc chung của nhóm đã dùng trên VPS.
 - `agent-roles/coordinator.md`: Culi 1 điều phối/kiến trúc.
 - `agent-roles/developer.md`: Culi 2 lập trình.
@@ -13,7 +15,7 @@ Ngày 16/10/2026, user cho phép nhập 33 skill cá nhân (ưu tiên Codex khi 
 
 Bản sao đủ 71 file skill cá nhân nằm trong dữ liệu company local, không được publish lên GitHub. Sau pull trên PC công ty, script đọc bộ skill có sẵn tại `%USERPROFILE%/.codex/skills`, `.agents/skills`, `.claude/skills` của chính máy đó. Plugin/system skills không nằm trong đợt nhập 33 skill đã được chốt. MCP là bước tích hợp riêng, xem `../doc/WINDOWS-MCP.md`.
 
-Các skill Paperclip built-in đã nằm trong repo upstream, không copy bản thứ hai. VNG single/complicate và MCP Desktop chưa được tự động nhập; lựa chọn các skill chuyên môn vẫn do user quản lý trên Paperclip.
+Các skill Paperclip built-in đã nằm trong repo upstream, không copy bản thứ hai. Helper context nhập VNG single/complicate khi thư mục skill có trên máy này; MCP Desktop vẫn cần kết nối và kiểm chứng riêng. Các skill chuyên môn có thể được user quản lý thêm trên Paperclip.
 
 Chạy `node scripts/windows-local-bootstrap.mjs` để tạo hoặc tái dùng company `Longtu Local` và nhập skill `ifixai-audit` vào thư viện. Lệnh không chạy agent, không tạo task và không ghi đè skill đã được sửa khác trên dashboard. Receipt chỉ ở dữ liệu local, không đưa vào Git.
 

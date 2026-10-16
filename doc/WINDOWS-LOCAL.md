@@ -13,6 +13,8 @@ Cập nhật 16/10/2026. Source chính: `E:\ProjectVNG\paperclip`, fork `https:/
 
 ## Chuẩn bị ở PC công ty
 
+Để bàn giao trọn quy trình cho Codex trên máy công ty, dùng [WINDOWS-COMPANY-SETUP.md](WINDOWS-COMPANY-SETUP.md): có prompt bắt đầu, thứ tự setup, đối chiếu 33 skill, docs Drive và tiêu chí kiểm chứng. Lưu ý sau bản sửa ẩn console, người dùng vẫn báo terminal xuất hiện; PC nhà đã được dừng theo yêu cầu. Chưa xác nhận lỗi đã hết và chưa bật startup mới trên máy công ty.
+
 PowerShell thường, không cần Administrator. Cần Node >=24.11, Git và CLI native của provider sẽ dùng. `claude.exe` thường ở `%USERPROFILE%\.local\bin`. Git Bash vẫn có thể cần cho Claude Code; không phải WSL.
 
 ```powershell
