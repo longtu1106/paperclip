@@ -24,6 +24,7 @@ export function readBrowserBuildCommit(repositoryDirectory: string): string | nu
     execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: repositoryDirectory,
       encoding: "utf8",
+      windowsHide: true,
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1000,
     }),

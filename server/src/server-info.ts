@@ -15,6 +15,7 @@ function defaultGitCommand() {
     ["show", "-s", "--format=%H%n%h%n%s%n%cI", "HEAD"],
     {
       encoding: "utf8",
+      windowsHide: true,
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,
     },
@@ -27,6 +28,7 @@ function defaultGitStatusCommand() {
     ["status", "--porcelain=v1", "--untracked-files=normal"],
     {
       encoding: "utf8",
+      windowsHide: true,
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,
     },
@@ -39,6 +41,7 @@ function defaultGitBranchCommand() {
     ["symbolic-ref", "--quiet", "--short", "HEAD"],
     {
       encoding: "utf8",
+      windowsHide: true,
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,
     },

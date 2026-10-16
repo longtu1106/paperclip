@@ -130,6 +130,32 @@ Ngày 15/10/2026, cùng tài khoản Minh Nguyen: CLI cũ `0.157.1` không có `
 
 Phần này dành cho execution engine `Codex CLI`. Engine ACP có dependency riêng của upstream. Khi chủ động nâng tiếp CLI, sửa pin bằng commit riêng, cài bản đó, kiểm tra doctor/model/hello và restart khi task đã kết thúc; không trỏ cố định vào thư mục alpha có mã hash của Desktop.
 
+## Claude Code cài bằng npm trên Windows
+
+Nếu `claude` chạy được trong terminal nhưng Paperclip báo sign-in kết thúc trước
+khi kết nối account, kiểm tra `node scripts/windows-local.mjs doctor`. Profile
+Windows bổ sung thư mục native `node_modules/@anthropic-ai/claude-code/bin` dưới
+các entry PATH hiện có khi tìm thấy `claude.exe`. Bản cài riêng tại
+`data/windows-tools/claude-code/node_modules/@anthropic-ai/claude-code/bin`
+được ưu tiên trước bản npm toàn máy. Có thể cài trên ổ chứa repo bằng
+`npm install --prefix ./data/windows-tools/claude-code --no-save --package-lock=false @anthropic-ai/claude-code@2.1.301`.
+Claude Opus 5.5 yêu cầu CLI từ 2.1.280; chạy Test sau khi nâng cấp.
+ConPTY cần executable này,
+không chỉ wrapper `claude.ps1`/`claude.cmd`. Không đổi PATH toàn máy hoặc nhập
+credential của terminal vào Paperclip. Stop/start profile sau khi cài CLI, rồi
+chọn **Start sign-in again** trên dashboard để đăng nhập vào home riêng.
+
+Windows Claude login dùng ConPTY rộng 4096 cột để URL OAuth (parser giới hạn
+2048 ký tự) không bị ngắt dòng giữa query value. Đã tái hiện với CLI 2.1.179:
+160 cột có thể làm prompt không được nhận dạng; 4096 cột đọc được prompt mà
+không đổi allowlist URL, redirect URI hoặc quy tắc kiểm tra token. Vẫn cần user
+hoàn tất đăng nhập và Test connection; sinh được URL chưa phải kết nối thành công.
+
+Health API đọc Git metadata theo cache ngắn khi dashboard refresh/poll. Các
+lệnh Git này và lệnh đọc build commit của Vite phải dùng `windowsHide: true` để
+không mở console Windows. Điều này không chứng nhận đã xử lý mọi cửa sổ của
+PostgreSQL hoặc công cụ khác; cần ghi PID/parent khi tái hiện từng nguồn.
+
 ## Dùng Git để chỉnh sửa và cập nhật
 
 `origin` là fork của bạn. `upstream` là repo chính chủ. PC công ty chỉ cần clone/pull nhánh Windows từ origin; mỗi máy tự đăng nhập provider và giữ data local.

@@ -87,8 +87,11 @@ export function startLocalBrowserLogin(provider: "anthropic" | "openai", home: s
         const pty = await import("node-pty");
         if (controller.signal.aborted) throw new Error("Local sign-in cancelled");
         const nativeClaude = path.join(homedir(), ".local", "bin", "claude.exe");
+        // Keep the parser's bounded (2048-character) OAuth URL on one line.
+        // ConPTY wrapping can split a valid state value, making a URL prefix
+        // validate before the remaining fragment and browser-code prompt arrive.
         terminal = pty.spawn(existsSync(nativeClaude) ? nativeClaude : "claude.exe", args, {
-          name: "xterm-256color", cols: 160, rows: 40, cwd: home, env,
+          name: "xterm-256color", cols: 4096, rows: 40, cwd: home, env,
         });
         let promptSent = false;
         let tokenSent = false;
