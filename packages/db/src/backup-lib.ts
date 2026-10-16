@@ -336,6 +336,7 @@ async function runPgDumpBackup(opts: {
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
       env: {
         ...process.env,
         PGCONNECT_TIMEOUT: String(opts.connectTimeout),
@@ -365,6 +366,7 @@ async function restoreWithPsql(opts: RunDatabaseRestoreOptions, connectTimeout: 
     ],
     {
       stdio: ["pipe", "ignore", "pipe"],
+      windowsHide: true,
       env: {
         ...process.env,
         PGCONNECT_TIMEOUT: String(connectTimeout),

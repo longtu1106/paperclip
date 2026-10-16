@@ -169,6 +169,16 @@ Khi chỉnh tính năng của Paperclip: UI được Vite cập nhật trong lú
 
 ## Phạm vi đã kiểm chứng
 
+### Ẩn terminal của tiến trình nền (16/10/2026)
+
+Launcher Windows vốn đã khởi chạy server ẩn. Bản sửa bổ sung `windowsHide: true` cho PostgreSQL/initdb, lệnh phụ của embedded-postgres, bộ chạy CLI chung của agent và pg_dump/psql. Không đổi shell, sandbox, quyền truy cập, lịch backup hay nơi lưu database. Log và stdout/stderr vẫn được thu qua pipe/file.
+
+Bản vá dependency được giữ tại `patches/embedded-postgres@18.1.0-beta.16.patch`. Sau khi nhận thay đổi, cài dependency bằng pnpm theo lockfile rồi restart profile Windows lúc không có task đang chạy; chỉ sửa file trong `node_modules` sẽ không bền qua lần cài tiếp theo. Không đóng/kill cửa sổ PostgreSQL để giấu terminal vì có thể làm mất kết nối database.
+
+Phạm vi sửa là tiến trình do Paperclip trực tiếp tạo. Cửa sổ do công cụ bên ngoài tự mở, hoặc các terminal người dùng đã mở sẵn, cần xác định riêng theo tiến trình sở hữu.
+
+Kiểm chứng trên PC nhà: 19 test Node cho profile/context/SDK, 3 test bộ chạy CLI và 1 test backup/restore PostgreSQL đạt. Sau restart, dashboard HTTP 200, health `ok`, ba agent Idle và không có OpenConsole mới trong lần kiểm tra. Chưa chạy toàn bộ build/typecheck monorepo hoặc task provider thật cho bản sửa console này.
+
 - Native Node server, UI qua Vite middleware, PostgreSQL Windows, health và local login capability hoạt động trên PC nhà.
 - Đã kiểm tra shutdown, khởi động lại và tạo backup offline. Bootstrap lặp lại không tạo trùng company/skill/3 agent.
 - Các test login Windows và SDK junction được chạy riêng; xem receipt trong `data/windows-home/windows-runtime/verification.json`.
