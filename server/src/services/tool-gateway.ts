@@ -18,7 +18,7 @@ import { emitConnectionInvoked } from "./connector-telemetry.js";
 import { resolveManagedGitHubIdentitySelection } from "./git-credentials.js";
 import { extractRemoteMcpPending } from "./remote-mcp-pending.js";
 import { logger } from "../middleware/logger.js";
-import { spawn } from "node:child_process";
+import { localMcpPool, localMcpScopeKey, LOCAL_MCP_IDLE_TTL_MS, LocalMcpError } from "./local-stdio-mcp.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   and,
@@ -1144,6 +1144,9 @@ export function createToolGatewayService(
     deploymentMode: options.deploymentMode,
     deploymentExposure: options.deploymentExposure,
     trustedLocalStdioRuntimeHost: options.trustedLocalStdioRuntimeHost,
+    idleTtlMs: LOCAL_MCP_IDLE_TTL_MS,
+    maxCompanySlots: 16,
+    maxHostSlots: 64,
     ...options.runtimeSupervisor,
   });
   const pluginToolDispatcher = options.pluginToolDispatcher;
@@ -5014,6 +5017,7 @@ export function createToolGatewayService(
   }
 
   async function callLocalStdioMcp(input: {
+    session: ToolGatewaySession;
     connection: typeof toolConnections.$inferSelect;
     entry?: typeof toolCatalogEntries.$inferSelect;
     template: LocalStdioRuntimeTemplate;
@@ -5022,6 +5026,7 @@ export function createToolGatewayService(
     protocolMethod?: string;
     protocolParams?: Record<string, unknown>;
     timeoutMs: number;
+    onProcess?: (pid: number | null) => void;
   }): Promise<unknown> {
     if (input.template.templateId === "paperclip.cognee-cloud") {
       if (input.protocolMethod === "resources/list") return { resources: [] };
@@ -5055,164 +5060,23 @@ export function createToolGatewayService(
         },
       );
     }
-    const child = spawn(input.template.command, input.template.args, {
-      env: input.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    let nextId = 1;
-    const pending = new Map<
-      number,
-      {
-        resolve: (value: unknown) => void;
-        reject: (error: Error) => void;
-      }
-    >();
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      for (const { reject } of pending.values()) {
-        reject(
-          new ToolGatewayHttpError(
-            504,
-            "Local stdio MCP tool call timed out",
-            "tool_timeout",
-            {
-              connectionId: input.connection.id,
-              catalogEntryId: input.entry?.id ?? null,
-            },
-          ),
-        );
-      }
-      pending.clear();
-    }, input.timeoutMs);
-    timer.unref?.();
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-      let newline = stdout.indexOf("\n");
-      while (newline >= 0) {
-        const line = stdout.slice(0, newline).trim();
-        stdout = stdout.slice(newline + 1);
-        if (line) {
-          try {
-            const message = JSON.parse(line) as Record<string, unknown>;
-            const id = typeof message.id === "number" ? message.id : null;
-            if (id !== null && pending.has(id)) {
-              const waiter = pending.get(id)!;
-              pending.delete(id);
-              if (message.error !== undefined) {
-                waiter.reject(
-                  stdioProtocolError(
-                    "Local stdio MCP server returned a JSON-RPC error",
-                    {
-                      connectionId: input.connection.id,
-                      catalogEntryId: input.entry?.id ?? null,
-                      error: message.error,
-                    },
-                  ),
-                );
-              } else {
-                waiter.resolve(message.result);
-              }
-            }
-          } catch {
-            for (const { reject } of pending.values()) {
-              reject(
-                stdioProtocolError(
-                  "Local stdio MCP server returned invalid JSON",
-                  {
-                    connectionId: input.connection.id,
-                    catalogEntryId: input.entry?.id ?? null,
-                  },
-                ),
-              );
-            }
-            pending.clear();
-          }
-        }
-        newline = stdout.indexOf("\n");
-      }
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr = `${stderr}${chunk}`.slice(-4_000);
-    });
-    const exitPromise = new Promise<void>((resolve, reject) => {
-      child.on("error", (error) => {
-        const gatewayError = new ToolGatewayHttpError(
-          502,
-          "Local stdio MCP command failed to start",
-          "local_stdio_spawn_failed",
-          {
-            connectionId: input.connection.id,
-            templateId: input.template.templateId,
-            message: error.message,
-          },
-        );
-        for (const { reject: rejectPending } of pending.values()) {
-          rejectPending(gatewayError);
-        }
-        pending.clear();
-        reject(gatewayError);
-      });
-      child.on("exit", (code, signal) => {
-        if (pending.size === 0) {
-          resolve();
-          return;
-        }
-        for (const { reject: rejectPending } of pending.values()) {
-          rejectPending(
-            new ToolGatewayHttpError(
-              502,
-              "Local stdio MCP command exited before responding",
-              "local_stdio_process_exited",
-              {
-                connectionId: input.connection.id,
-                catalogEntryId: input.entry?.id ?? null,
-                code,
-                signal,
-                stderr,
-              },
-            ),
-          );
-        }
-        pending.clear();
-        resolve();
-      });
-    });
-    const request = (method: string, params: Record<string, unknown>) => {
-      const id = nextId;
-      nextId += 1;
-      const promise = new Promise<unknown>((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-      });
-      child.stdin.write(
-        `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
-      );
-      return promise;
-    };
     try {
-      await request("initialize", {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "paperclip-tool-gateway", version: "0.3.1" },
-      });
-      child.stdin.write(
-        `${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} })}\n`,
-      );
-      return await request(
-        input.protocolMethod ?? "tools/call",
-        input.protocolParams ?? {
-          name: input.entry?.toolName,
-          arguments: input.parameters ?? {},
+      return await localMcpPool.request({
+        scope: {
+          companyId: input.session.companyId, connectionId: input.connection.id,
+          agentId: input.session.agentId, runId: input.session.runId, sessionId: input.session.id,
         },
-      );
-    } finally {
-      clearTimeout(timer);
-      child.stdin.end();
-      child.kill("SIGTERM");
-      await exitPromise.catch(() => undefined);
+        command: input.template.command, args: input.template.args, env: input.env,
+        method: input.protocolMethod ?? "tools/call",
+        params: input.protocolParams ?? { name: input.entry?.toolName, arguments: input.parameters ?? {} },
+        timeoutMs: input.timeoutMs, expiresAt: input.session.expiresAt, onProcess: input.onProcess,
+      });
+    } catch (error) {
+      if (error instanceof LocalMcpError) {
+        throw new ToolGatewayHttpError(error.reasonCode === "tool_timeout" ? 504 : 502,
+          error.message, error.reasonCode, { connectionId: input.connection.id, catalogEntryId: input.entry?.id ?? null });
+      }
+      throw error;
     }
   }
 
@@ -5370,7 +5234,7 @@ export function createToolGatewayService(
       grant,
     );
     if (template.templateId === "paperclip.cognee-cloud") {
-      return callLocalStdioMcp({ connection: input.connection, template, env,
+      return callLocalStdioMcp({ session: input.session, connection: input.connection, template, env,
         protocolMethod: input.method, protocolParams: input.params ?? {}, timeoutMs: DEFAULT_TOOL_TIMEOUT_MS });
     }
     return runtimeSupervisor.useConnectionSlot(
@@ -5378,24 +5242,28 @@ export function createToolGatewayService(
         companyId: input.session.companyId,
         applicationId: input.connection.applicationId,
         connectionId: input.connection.id,
-        connectionKey: `mcp:${input.session.companyId}:${input.connection.id}`,
+        connectionKey: localMcpScopeKey({ ...input.session, sessionId: input.session.id, connectionId: input.connection.id }),
         runId: input.session.runId,
         issueId: input.session.issueId,
         agentId: input.session.agentId,
         commandTemplateKey: template.templateId,
         metadata: {
           source: "native-runtime-context",
+          runId: input.session.runId,
+          agentId: input.session.agentId,
           protocolMethod: input.method,
         },
       },
-      async () =>
+      async (handle) =>
         callLocalStdioMcp({
+          session: input.session,
           connection: input.connection,
           template,
           env,
           protocolMethod: input.method,
           protocolParams: input.params ?? {},
           timeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+          onProcess: (pid) => { handle.metadata.process = { simulated: false, supervisorPid: process.pid, spawnedPid: pid }; },
         }),
     );
   }
@@ -6371,7 +6239,7 @@ export function createToolGatewayService(
       template,
       grant,
     );
-    const invoke = () => callLocalStdioMcp({ connection, entry, template, env, parameters,
+    const invoke = (onProcess?: (pid: number | null) => void) => callLocalStdioMcp({ session, connection, entry, template, env, parameters, onProcess,
       timeoutMs: useProviderDefaultTimeout && template.templateId === "paperclip.cognee-cloud" ? 60_000 : ms });
     // Cognee is a bundled HTTP client. Provider failures are tool failures, not
     // crashed local processes, and must never consume slots or restart budgets.
@@ -6382,13 +6250,15 @@ export function createToolGatewayService(
         companyId: session.companyId,
         applicationId: tool.applicationId ?? null,
         connectionId: connection.id,
-        connectionKey: `mcp:${session.companyId}:${connection.id}`,
+        connectionKey: localMcpScopeKey({ ...session, sessionId: session.id, connectionId: connection.id }),
         runId: session.runId,
         issueId: session.issueId,
         agentId: session.agentId,
         commandTemplateKey: template.templateId,
         metadata: {
           fixture: "connected-local-stdio",
+          runId: session.runId,
+          agentId: session.agentId,
           applicationId: tool.applicationId ?? null,
           connectionId: connection.id,
           catalogEntryId: entry.id,
@@ -6396,7 +6266,7 @@ export function createToolGatewayService(
       },
       async (handle) => {
         handle.appendLog("stdout", `calling ${entry.toolName}`);
-        return invoke();
+        return invoke((pid) => { handle.metadata.process = { simulated: false, supervisorPid: process.pid, spawnedPid: pid }; });
       },
     );
     return {
@@ -11212,6 +11082,8 @@ export function createToolGatewayService(
         )
         .returning();
       const sessionView = gatewaySessionFromRow(session!);
+      await localMcpPool.closeMatching((scope, sessionIds) =>
+        scope.companyId === input.companyId && sessionIds.has(input.sessionId));
       await writeAudit({
         session: sessionView,
         companyId: sessionView.companyId,
@@ -11246,7 +11118,12 @@ export function createToolGatewayService(
       const rows = await db
         .delete(toolGatewaySessions)
         .where(lte(toolGatewaySessions.expiresAt, now))
-        .returning({ id: toolGatewaySessions.id });
+        .returning({ id: toolGatewaySessions.id, companyId: toolGatewaySessions.companyId });
+      const expiredSessionKeys = new Set(rows.map(row => `${row.companyId}:${row.id}`));
+      await localMcpPool.closeMatching((scope, sessionIds) => {
+        for (const id of sessionIds) if (expiredSessionKeys.has(`${scope.companyId}:${id}`)) sessionIds.delete(id);
+        return sessionIds.size === 0;
+      });
       return { deletedCount: rows.length };
     },
 
@@ -11260,12 +11137,14 @@ export function createToolGatewayService(
       actor?: { agentId?: string | null; runId?: string | null };
     }) {
       try {
-        return await runtimeSupervisor.stopSlot({
+        const stopped = await runtimeSupervisor.stopSlot({
           companyId: input.companyId,
           slotId: input.slotId,
           agentId: input.actor?.agentId ?? null,
           runId: input.actor?.runId ?? null,
         });
+        await localMcpPool.closeMatching(scope => scope.companyId === input.companyId && localMcpScopeKey(scope) === stopped.connectionKey);
+        return stopped;
       } catch (err) {
         if (err instanceof ToolRuntimeSupervisorError) {
           throw new ToolGatewayHttpError(
@@ -11285,12 +11164,14 @@ export function createToolGatewayService(
       actor?: { agentId?: string | null; runId?: string | null };
     }) {
       try {
-        return await runtimeSupervisor.restartSlot({
+        const restarted = await runtimeSupervisor.restartSlot({
           companyId: input.companyId,
           slotId: input.slotId,
           agentId: input.actor?.agentId ?? null,
           runId: input.actor?.runId ?? null,
         });
+        await localMcpPool.closeMatching(scope => scope.companyId === input.companyId && localMcpScopeKey(scope) === restarted.connectionKey);
+        return restarted;
       } catch (err) {
         if (err instanceof ToolRuntimeSupervisorError) {
           throw new ToolGatewayHttpError(

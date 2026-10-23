@@ -6,7 +6,7 @@ Cập nhật 16/10/2026. Source chính: `E:\ProjectVNG\paperclip`, fork `https:/
 
 - Mỗi PC chạy Node/Paperclip và Codex/Claude CLI ngay trên Windows, bằng user đăng nhập. Không cần WSL, Docker hoặc SSH về PC để thực thi.
 - Dashboard: `http://localhost:3100`. Đây là profile local-only, không public hoặc đưa qua proxy khi chưa chuyển sang chế độ có đăng nhập.
-- Dữ liệu mới nằm tại `data/windows-home/instances/default/`; DB embedded PostgreSQL dùng port `54339`, khác DB local cũ.
+- Dữ liệu mới nằm tại `data/windows-home/instances/default/`; DB embedded PostgreSQL mặc định dùng port `54339`, khác DB local cũ. Nếu Windows giữ cổng trong excluded port ranges (`netsh interface ipv4 show excludedportrange protocol=tcp`), khi server đã dừng có thể đổi `database.embeddedPostgresPort` trong `config.json` của instance sang cổng trống ngoài dải đó (máy này dùng `15439`). Không đổi thư mục DB; launcher, backup và doctor đều đọc cổng từ config. Cổng web vẫn là `3100`.
 - Source, role templates và skill tùy chỉnh được Git quản lý. Database, login, secret, log, backup và cấu hình project của từng PC không được Git quản lý.
 - Không chuyển lịch sử/DB/credential từ VPS. Instance cũ và VPS được giữ nguyên; user sẽ tự quyết định xóa VPS sau.
 - Hai PC dùng cùng phiên bản code nhưng có task, tài khoản và project độc lập. Git không đồng bộ hai dashboard.
@@ -144,6 +144,25 @@ ConPTY cần executable này,
 không chỉ wrapper `claude.ps1`/`claude.cmd`. Không đổi PATH toàn máy hoặc nhập
 credential của terminal vào Paperclip. Stop/start profile sau khi cài CLI, rồi
 chọn **Start sign-in again** trên dashboard để đăng nhập vào home riêng.
+
+Profile `windows-local` nạp `scripts/windows-background-children.mjs` trước server.
+Lớp này buộc `windowsHide: true` cho các API child_process (kể cả thư viện PostgreSQL,
+Git và MCP), giữ callback/promisify/stdio và truyền preload sang Node helper bằng
+NODE_OPTIONS riêng của tiến trình con. Không sửa thiết lập Terminal hoặc PATH toàn
+máy. Restart profile sau khi đổi lớp này. Phạm vi là server chạy qua
+`windows-local.mjs`; không phải các terminal tương tác người dùng mở thủ công,
+`pnpm dev` hoặc chương trình native tự tạo GUI/console độc lập.
+
+Local stdio MCP (bao gồm Playwright Vision Proxy) giữ cùng tiến trình cho mỗi
+công ty/connection/agent/lượt chạy. Các lệnh trong cùng phiên chạy tuần tự; các
+agent hoặc lượt chạy khác dùng tiến trình khác. Không có run ID thì chỉ tái sử
+dụng trong gateway session hiện tại. Phiên đóng khi run kết thúc, session bị thu
+hồi/hết hạn, stop/restart runtime, server shutdown hoặc idle 5 phút. Lỗi timeout
+và mất transport đóng phiên, không tự phát lại lệnh. Credential/command thay đổi
+sẽ thay tiến trình. Mỗi lần gọi vẫn kiểm tra quyền và resolve secret trước khi
+tái sử dụng. Gateway mặc định tối đa 16 slot/công ty, 64 slot/host; cấu hình
+runtimeSupervisor cụ thể vẫn được ưu tiên. Các process riêng không phải Chrome
+profile riêng; thao tác cố ý chọn tab của nhau vẫn có thể gây xung đột.
 
 Windows Claude login dùng ConPTY rộng 4096 cột để URL OAuth (parser giới hạn
 2048 ký tự) không bị ngắt dòng giữa query value. Đã tái hiện với CLI 2.1.179:

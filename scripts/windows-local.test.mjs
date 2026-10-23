@@ -4,11 +4,93 @@ import net from "node:net";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { execFileSync } from "node:child_process";
+import { promisify } from "node:util";
+import { installWindowsBackgroundChildren } from "./windows-background-children.mjs";
 import { codexSelection, validateCodex } from "./windows-local-codex.mjs";
 import {
   childEnvironment, validateConfig, matchingRecord, processAlive, portAvailable,
   repoRoot, homeRoot, instanceRoot, supportedNode,
 } from "./windows-local.mjs";
+
+test("background policy covers every child-process API and preserves callback/stdio/env", () => {
+  for (const name of ["spawn", "spawnSync", "execFile", "execFileSync", "exec", "execSync", "fork"]) {
+    let received;
+    const marker = {};
+    const target = { [name]: (...args) => { received = args; return marker; } };
+    const original = target[name];
+    assert.equal(installWindowsBackgroundChildren(target, "linux"), false);
+    const restore = installWindowsBackgroundChildren(target, "win32");
+    assert.equal(installWindowsBackgroundChildren(target, "win32"), false);
+    const options = { windowsHide: false, timeout: 123, stdio: "pipe", env: { CUSTOM: "kept" } };
+    const args = ["exec", "execSync"].includes(name) ? ["command", options] : ["command", ["arg"], options];
+    assert.equal(target[name](...args), marker);
+    const actual = received.at(-1);
+    assert.equal(actual.windowsHide, true);
+    assert.equal(actual.timeout, 123);
+    assert.equal(actual.stdio, "pipe");
+    assert.equal(actual.env.CUSTOM, "kept");
+    assert.equal(actual.env.PAPERCLIP_WINDOWS_BACKGROUND_CHILDREN, "1");
+    assert.match(actual.env.NODE_OPTIONS, /--import=file:/);
+    assert.equal(options.windowsHide, false);
+    assert.deepEqual(options.env, { CUSTOM: "kept" });
+    if (["execFile", "exec"].includes(name)) {
+      const callback = () => {};
+      target[name]("command", callback);
+      assert.equal(received[2], callback);
+      assert.equal(received[1].windowsHide, true);
+    }
+    restore();
+    assert.equal(target[name], original);
+  }
+});
+
+test("background policy preserves promisified stdout/stderr and promise.child", async () => {
+  const child = {};
+  const original = (...args) => { queueMicrotask(() => args.at(-1)(null, "out", "err")); return child; };
+  original[promisify.custom] = () => {};
+  const target = { execFile: original };
+  const restore = installWindowsBackgroundChildren(target, "win32");
+  const promise = promisify(target.execFile)("command", ["arg"]);
+  assert.equal(promise.child, child);
+  assert.deepEqual(await promise, { stdout: "out", stderr: "err" });
+  restore();
+});
+
+test("background policy preserves errors and undefined argument overloads", async () => {
+  let received;
+  const error = new Error("expected failure");
+  const original = (...args) => {
+    received = args;
+    queueMicrotask(() => args.at(-1)(error, "partial", "diagnostic"));
+    return {};
+  };
+  original[promisify.custom] = () => {};
+  const target = { execFile: original };
+  const restore = installWindowsBackgroundChildren(target, "win32");
+  await assert.rejects(promisify(target.execFile)("command", undefined, { timeout: 50 }),
+    cause => cause === error && cause.stdout === "partial" && cause.stderr === "diagnostic");
+  assert.equal(received[2].timeout, 50);
+  assert.equal(received[2].windowsHide, true);
+  restore();
+});
+
+test("Node helpers inherit the background policy across two generations", () => {
+  const policy = new URL("./windows-background-children.mjs", import.meta.url).href;
+  const program = `
+    const cp = await import('node:child_process');
+    const {promisify} = await import('node:util');
+    const {installWindowsBackgroundChildren} = await import(${JSON.stringify(policy)});
+    installWindowsBackgroundChildren(cp.default, 'win32');
+    const result = await promisify(cp.execFile)(process.execPath,
+      ['-e', 'const cp = require("node:child_process"); process.stdout.write((process.env.PAPERCLIP_WINDOWS_BACKGROUND_CHILDREN || "missing") + ":" + (cp[Symbol.for("paperclip.windows-background-children")] === true))'],
+      {encoding:'utf8', env:{...process.env}});
+    process.stdout.write(JSON.stringify(result));
+  `;
+  const output = execFileSync(process.execPath, ["--input-type=module", "-e", program],
+    { encoding: "utf8", windowsHide: true });
+  assert.deepEqual(JSON.parse(output), { stdout: "1:true", stderr: "" });
+});
 
 function profile() {
   return {
@@ -39,6 +121,29 @@ test("child process cannot inherit Desktop sandbox, SSH profile or provider cred
   assert.deepEqual(env.PATH.split(path.delimiter).slice(0, 2), codex.pathDirs);
   assert.equal(env.CODEX_MANAGED_PACKAGE_ROOT, codex.packageRoot);
   assert.equal(env.CODEX_MANAGED_BY_NPM, "1");
+});
+
+test("server PATH exposes npm Claude's native executable without adopting credentials", (t) => {
+  const npmRoot = fs.mkdtempSync(path.join(os.tmpdir(), "paperclip-claude-path-"));
+  t.after(() => {
+    const relative = path.relative(os.tmpdir(), npmRoot);
+    assert.ok(relative.startsWith("paperclip-claude-path-") && !relative.includes(path.sep));
+    fs.rmSync(npmRoot, { recursive: true, force: true });
+  });
+  const nativeDir = path.join(npmRoot, "node_modules", "@anthropic-ai", "claude-code", "bin");
+  fs.mkdirSync(nativeDir, { recursive: true });
+  fs.writeFileSync(path.join(npmRoot, "claude.cmd"), "npm wrapper, not a native executable");
+  assert.ok(!childEnvironment({ PATH: npmRoot }).PATH.split(path.delimiter).includes(nativeDir));
+  fs.writeFileSync(path.join(nativeDir, "claude.exe"), "path fixture, never executed");
+  const env = childEnvironment({ PATH: npmRoot, CLAUDE_CONFIG_DIR: "personal-auth", CLAUDE_CODE_OAUTH_TOKEN: "private-token" });
+  assert.ok(env.PATH.split(path.delimiter).includes(nativeDir));
+  const managedClaudeDir = path.join(repoRoot, "data", "windows-tools", "claude-code", "node_modules", "@anthropic-ai", "claude-code", "bin");
+  if (fs.existsSync(path.join(managedClaudeDir, "claude.exe"))) {
+    assert.ok(env.PATH.split(path.delimiter).indexOf(managedClaudeDir) < env.PATH.split(path.delimiter).indexOf(nativeDir));
+  }
+  assert.equal(env.CLAUDE_CONFIG_DIR, undefined);
+  assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+  assert.deepEqual(env.PATH.split(path.delimiter).slice(0, 2), codexSelection().pathDirs);
 });
 
 function toolFixture(t) {
@@ -90,6 +195,12 @@ test("Codex startup validation rejects missing packages, version drift, layout d
 
 test("profile refuses public bind and another database", () => {
   assert.equal(validateConfig(profile()).database.embeddedPostgresPort, 54339);
+  const alternate = profile(); alternate.database.embeddedPostgresPort = 15439;
+  assert.equal(validateConfig(alternate).database.embeddedPostgresPort, 15439);
+  for (const invalid of [0, 1023, 3100, 65536, 15439.5, "15439", null]) {
+    const candidate = profile(); candidate.database.embeddedPostgresPort = invalid;
+    assert.throws(() => validateConfig(candidate));
+  }
   for (const patch of [{ host: "0.0.0.0" }, { port: 13100 }, { deploymentMode: "authenticated" }, { bind: "lan" }, { exposure: "public" }]) {
     const config = profile(); Object.assign(config.server, patch);
     assert.throws(() => validateConfig(config));

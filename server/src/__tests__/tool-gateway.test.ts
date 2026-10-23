@@ -43,7 +43,9 @@ import {
   userSecretDeclarations,
   userSecretDefinitions,
 } from "@paperclipai/db";
-import { buildPaperclipRuntimeMcpServers } from "../services/heartbeat.js";
+import { buildPaperclipRuntimeMcpServers, revokeHeartbeatRunGatewayTokens } from "../services/heartbeat.js";
+import { localMcpPool } from "../services/local-stdio-mcp.js";
+import { syncConnectionCredentialBindings } from "../services/connection-credential-bindings.js";
 import { resolveNativeRuntimeMcpSnapshot } from "../services/native-runtime/runtime-context.js";
 import type { PluginToolDispatcher } from "../services/plugin-tool-dispatcher.js";
 import { mcpGatewayProtocolRoutes, toolGatewayRoutes } from "../routes/tool-gateway.js";
@@ -550,6 +552,7 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
   }, 90_000);
 
   afterEach(async () => {
+    await localMcpPool.closeAll();
     await db.delete(activityLog);
     await db.delete(toolCallEvents);
     await db.delete(toolRuntimeSlots);
@@ -1553,6 +1556,57 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
     expect(remoteHttpRequest).not.toHaveBeenCalled();
   });
 
+  it("rolls back connection credential binding replacement when a replacement fails", async () => {
+    const company = await createCompany(db);
+    const vault = secretService(db);
+    const secret = await vault.create(company.id, { name: "Binding rollback", key: `rollback_${randomUUID()}`, provider: "local_encrypted", value: "test-token" });
+    const ref = { secretId: secret.id, configPath: "headers.Authorization", versionSelector: "latest" as const, required: true };
+    const { connection } = await createRemoteMcpTool(db, company.id, { credentialSecretRefs: [ref] });
+    const before = await db.select().from(companySecretBindings).where(eq(companySecretBindings.targetId, connection.id));
+    // A stale ref fails at the FK insert, after deletion in the former path.
+    await expect(syncConnectionCredentialBindings(db, connection, [{ ...ref, secretId: randomUUID(), configPath: "headers.Stale" }])).rejects.toThrow();
+    const after = await db.select().from(companySecretBindings).where(eq(companySecretBindings.targetId, connection.id));
+    expect(after.map(row => row.id)).toEqual(before.map(row => row.id));
+    await expect(vault.resolveSecretValue(company.id, secret.id, "latest", {
+      consumerType: "tool_connection", consumerId: connection.id, configPath: ref.configPath,
+    })).resolves.toBe("test-token");
+  });
+
+  it("serializes concurrent connection credential binding sync without exposing a missing binding", async () => {
+    const company = await createCompany(db);
+    const secret = await secretService(db).create(company.id, { name: "Concurrent binding", key: `concurrent_${randomUUID()}`, provider: "local_encrypted", value: "test-token" });
+    const ref = { secretId: secret.id, configPath: "headers.Authorization", versionSelector: "latest" as const };
+    const { connection } = await createRemoteMcpTool(db, company.id, { credentialSecretRefs: [ref] });
+    const writers = Promise.all(Array.from({ length: 8 }, () => syncConnectionCredentialBindings(db, connection)));
+    const counts: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      counts.push((await db.select().from(companySecretBindings).where(eq(companySecretBindings.targetId, connection.id))).length);
+    }
+    await writers;
+    expect(counts.every(count => count === 1)).toBe(true);
+  });
+
+  it("binds organization installation credentials and retains them through metadata updates and rotation", async () => {
+    const company = await createCompany(db);
+    const vault = secretService(db);
+    const secret = await vault.create(company.id, { name: "Installation credential", key: `installation_${randomUUID()}`, provider: "local_encrypted", value: "initial-token" });
+    const { connection } = await createRemoteMcpTool(db, company.id);
+    const service = toolAccessService(db, { remoteHttpEndpointLookup: async () => [{ address: "8.8.8.8", family: 4 }] });
+    const ref = { secretId: secret.id, configPath: "headers.Authorization", versionSelector: "latest" as const, required: true };
+    const grant = await service.addConnectionInstallation(connection.id, { credentialSecretRefs: [ref], isDefault: true });
+    expect(grant.isDefault).toBe(true);
+    await service.updateConnection(connection.id, { name: "Renamed connection" });
+    await vault.rotate(secret.id, { value: "rotated-token" });
+    await service.updateConnection(connection.id, { enabled: false });
+    await service.updateConnection(connection.id, { enabled: true });
+    const bindings = await db.select().from(companySecretBindings).where(eq(companySecretBindings.targetId, connection.id));
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toMatchObject({ secretId: secret.id, configPath: ref.configPath });
+    await expect(vault.resolveSecretValue(company.id, secret.id, "latest", {
+      consumerType: "tool_connection", consumerId: connection.id, configPath: ref.configPath,
+    })).resolves.toBe("rotated-token");
+  });
+
   it("lists and executes connected local stdio MCP catalog tools through the gateway", async () => {
     const company = await createCompany(db);
     const agent = await createAgent(db, company.id);
@@ -1631,6 +1685,15 @@ describeEmbeddedPostgres("tool gateway acceptance", () => {
       commandTemplateKey: localTool.templateKey,
       healthStatus: "ok",
     });
+    const processInfo = (slot!.metadata as { process: { simulated: boolean; spawnedPid: number } }).process;
+    expect(processInfo.simulated).toBe(false);
+    expect(processInfo.spawnedPid).toEqual(expect.any(Number));
+    await gateway.executeTool({ sessionToken: session.token, tool: expectedName, parameters: { message: "again" } });
+    const [reused] = await db.select().from(toolRuntimeSlots).where(eq(toolRuntimeSlots.id, slot!.id));
+    expect((reused!.metadata as { process: { spawnedPid: number } }).process.spawnedPid).toBe(processInfo.spawnedPid);
+    await revokeHeartbeatRunGatewayTokens({ db, companyId: company.id, runId: run.id });
+    const [stopped] = await db.select().from(toolRuntimeSlots).where(eq(toolRuntimeSlots.id, slot!.id));
+    expect(stopped!.status).toBe("stopped");
   });
 
   it("passes only approved env values to local stdio MCP processes", async () => {

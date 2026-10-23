@@ -1,6 +1,7 @@
 import { classifyRunLiveness } from "../run-liveness.js";
 import { isAiAuthenticationBlocked } from "../ai-auth-failure.js";
 import { describe, expect, it } from "vitest";
+import { quotaFallbackEligible, quotaFallbackIds } from "./quota-agent-fallback.js";
 import {
   PROVIDER_QUOTA_RECOVERY_DEFAULT_BACKOFF_MS,
   classifyAdapterFailureForRecovery,
@@ -8,6 +9,41 @@ import {
 } from "./service.js";
 import { legacyExecutionNeedsReconciliation } from "../legacy-execution-recovery.js";
 import { isConfigurationIncompleteFailedRun } from "../../modules/wake-queue/domain/values.js";
+
+describe("quota fallback policy", () => {
+  const a = "11111111-1111-4111-8111-111111111111";
+  const b = "22222222-2222-4222-8222-222222222222";
+  const now = new Date("2026-10-16T08:00:00Z");
+  const source = { id: a, companyId: "company", status: "idle",
+    runtimeConfig: { quotaFallback: { enabled: true, agentIds: [b] }, aiConnection: { grantId: "source" } },
+    budgetMonthlyCents: 0, spentMonthlyCents: 0 } as Parameters<typeof quotaFallbackEligible>[0];
+  const candidate = { ...source, id: b, runtimeConfig: {
+    quotaFallback: { enabled: true, agentIds: [a] }, aiConnection: { grantId: "other" },
+  } };
+  it("requires opt-in and deduplicates bounded ordered candidates", () => {
+    expect(quotaFallbackIds({ quotaFallback: { agentIds: [a] } })).toEqual([]);
+    expect(quotaFallbackIds({ quotaFallback: { enabled: true, agentIds: [a, a, "bad", b] } })).toEqual([a, b]);
+  });
+  it("allows an idle same-company alternative with a different credential", () => {
+    expect(quotaFallbackEligible(source, candidate, now)).toBe(true);
+  });
+  it.each(["paused", "running", "error", "terminated"])("rejects unavailable %s candidates", status => {
+    expect(quotaFallbackEligible(source, { ...candidate, status }, now)).toBe(false);
+  });
+  it("rejects self, other companies, budgets, and exhausted credential reuse", () => {
+    expect(quotaFallbackEligible(source, source, now)).toBe(false);
+    expect(quotaFallbackEligible(source, { ...candidate, companyId: "another" }, now)).toBe(false);
+    expect(quotaFallbackEligible(source, { ...candidate, budgetMonthlyCents: 100, spentMonthlyCents: 100 }, now)).toBe(false);
+    expect(quotaFallbackEligible(source, { ...candidate, runtimeConfig: source.runtimeConfig }, now)).toBe(false);
+  });
+  it("persists cooldown across ownership changes and allows an expired window", () => {
+    const runtimeConfig = { ...candidate.runtimeConfig, quotaFallback: {
+      enabled: true, agentIds: [a], cooldownUntil: "2026-10-16T09:00:00Z",
+    } };
+    expect(quotaFallbackEligible(source, { ...candidate, runtimeConfig }, now)).toBe(false);
+    expect(quotaFallbackEligible(source, { ...candidate, runtimeConfig }, new Date("2026-10-16T10:00:00Z"))).toBe(true);
+  });
+});
 
 describe("classifyAdapterFailureForRecovery", () => {
   it("waits for model configuration changes instead of retrying a typed native model rejection", () => {

@@ -1,0 +1,22 @@
+# MQLens credential binding durability — 2026-10-17
+
+Observed: MQLens ping and database discovery passed for all four agents at 06:45 +07 after repairing an empty organization grant. An operator reconnect at 06:48 rotated the company credential to version 2 and health/catalog succeeded. At 07:05/07:20 secret access failed with binding_missing. The secret remains active; /secrets/:id/usage returns zero bindings. Token expiry or decryption failure is not supported by this evidence. The audit does not identify the deletion that removed the binding.
+
+Code risk: syncConnectionCredentialBindings deletes every declaration before validating/building replacements, and ordinary metadata updates run those operations without a transaction. An error after deletion can leave a permanent missing binding; concurrent readers can see the gap. Organization installation creation also does not synchronize newly declared credential refs.
+
+Plan: make connection binding replacement transactional and serialize it on the owning connection row, retaining all active grant refs. Make organization installation/default selection plus binding synchronization transactional. Restore current MQLens declarations through the public connection update API, retain existing credentials, and verify health/catalog and actual read-only calls for all agents. Recheck after harmless metadata updates and a controlled restart. Do not weaken binding checks, auto-replay Mongo operations or query production data.
+
+Regression cases: failed sync rolls back old bindings; a reader during replacement sees the previous committed declaration; concurrent syncs serialize; active organization grant refs survive metadata updates; installation creation binds its grant credentials. Existing reconnect and secret governance coverage stays intact.
+
+## Implementation and evidence
+
+- Binding replacement now runs in a transaction/savepoint and locks the company-scoped connection row before reading its current refs. Active grant refs remain included. This prevents partial replacement and serializes concurrent syncs; binding enforcement was not relaxed and no automatic credential fallback was added.
+- Organization installation creation, default-grant selection and binding synchronization now commit together.
+- Three added real-PostgreSQL regression cases in the existing gateway suite passed: FK-failure rollback with continued secret resolution; eight concurrent sync writers with twenty readers never observing a missing declaration; installation credentials surviving rename, pause/resume and token rotation.
+- Restored the current connection declaration through its PATCH API using the existing stored reference and marked Authorization required. No token was copied to chat or source and no MongoDB documents were changed. Version 2 was retained.
+- Live checks before final restart: all four agent pings returned pong 0.21.0. Four concurrent metadata-save/health-check rounds all returned HTTP 200/health ok; one durable headers.Authorization binding remained. Receipt: data/windows-home/windows-runtime/mqlens-binding-before-restart.json.
+- Backups: data/windows-backups/2026-10-17T00-29-40-121Z-f5ea1f before repair; data/windows-backups/2026-10-17T00-34-16-047Z-039f34 after repair.
+- Server typecheck still reports existing missing Runner declarations/implicit-any diagnostics, with no diagnostics in changed files. Graph impact was inspected; post-edit graph checks were unavailable because mutation receipts 119/120 remained pending. Filesystem fallback and real tests supplied verification.
+- Final gateway suite: 86/86 passed, including the three added regression cases. The first targeted run had a fixture-only DNS lookup failure in its metadata-update case; an explicit fixture resolver fixed that setup, and both the targeted rerun and full suite passed.
+- Final verification at 07:36 +07 after the second controlled restart: server health ok, one persisted Authorization binding, all four agent pings successful, Culi 3 lists 154 collections in 2026_cshub_local. No credential rewrite or manual binding repair was performed after this restart. Receipt: data/windows-home/windows-runtime/mqlens-binding-after-restart.json.
+- The exact historical deletion actor remains unproven by available audit. The lost-binding state is confirmed, and the unsafe partial-replacement path is now covered by rollback and concurrency tests. Deliberate future revocation still takes effect; the resolver does not manufacture authorization automatically.

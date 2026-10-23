@@ -18501,35 +18501,45 @@ export function toolAccessService(
         connection.companyId,
         input.credentialSecretRefs ?? [],
       );
-      if (input.isDefault) {
-        await db
-          .update(connectionGrants)
-          .set({ isDefault: false, updatedAt: new Date() })
-          .where(
-            and(
-              eq(connectionGrants.connectionId, connection.id),
-              eq(connectionGrants.kind, "organization"),
-            ),
-          );
-      }
       const binding = actorBinding(actor);
-      const [grant] = await db
-        .insert(connectionGrants)
-        .values({
-          companyId: connection.companyId,
-          connectionId: connection.id,
-          kind: "organization",
-          providerTenant: input.providerTenant,
-          credentialSecretRefs: input.credentialSecretRefs ?? [],
-          status: "active",
-          isDefault: input.isDefault ?? false,
-          createdByAgentId:
-            binding.actorType === "agent" ? binding.actorId : null,
-          createdByUserId:
-            binding.actorType === "user" ? binding.actorId : null,
-        })
-        .returning();
-      if (!grant) throw new Error("Failed to create connection installation");
+      const grant = await db.transaction(async (tx) => {
+        // Serialize default identity changes and projection declarations together.
+        await tx.select({ id: toolConnections.id }).from(toolConnections).where(and(
+          eq(toolConnections.companyId, connection.companyId),
+          eq(toolConnections.id, connection.id),
+        )).for("update");
+        if (input.isDefault) {
+          await tx
+            .update(connectionGrants)
+            .set({ isDefault: false, updatedAt: new Date() })
+            .where(
+              and(
+                eq(connectionGrants.connectionId, connection.id),
+                eq(connectionGrants.kind, "organization"),
+              ),
+            );
+        }
+        const [grant] = await tx
+          .insert(connectionGrants)
+          .values({
+            companyId: connection.companyId,
+            connectionId: connection.id,
+            kind: "organization",
+            providerTenant: input.providerTenant,
+            credentialSecretRefs: input.credentialSecretRefs ?? [],
+            status: "active",
+            isDefault: input.isDefault ?? false,
+            createdByAgentId:
+              binding.actorType === "agent" ? binding.actorId : null,
+            createdByUserId:
+              binding.actorType === "user" ? binding.actorId : null,
+          })
+          .returning();
+        if (!grant) throw new Error("Failed to create connection installation");
+        await syncCredentialBindings(connection, input.credentialSecretRefs ?? [], tx);
+        return grant;
+
+      });
       await db.insert(toolAccessAuditEvents).values({
         companyId: connection.companyId,
         connectionId: connection.id,

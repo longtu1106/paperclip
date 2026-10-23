@@ -1,7 +1,9 @@
 import path from "node:path";
+import { installWindowsBackgroundChildren } from "./windows-background-children.mjs";
 import { pathToFileURL } from "node:url";
 import { claimServer, releaseServer, setup, readJson, writeJson, sourceHead, runtimeRoot, stopPath, repoRoot, configPath, instanceRoot } from "./windows-local.mjs";
 
+installWindowsBackgroundChildren();
 setup();
 if (process.env.PAPERCLIP_CONFIG !== configPath || process.env.PAPERCLIP_HOME !== path.dirname(path.dirname(instanceRoot))) {
   throw new Error("Start this entry through windows-local.mjs start, with its isolated environment.");

@@ -192,6 +192,7 @@ import {
   routines,
   toolMcpGateways,
   toolMcpGatewayTokens,
+  toolRuntimeSlots,
   toolCatalogEntries,
   toolConnectionInstalls,
   toolConnections,
@@ -444,6 +445,7 @@ import {
   type AuthorizationActor,
 } from "./authorization.js";
 import { createToolGatewayService } from "./tool-gateway.js";
+import { localMcpPool } from "./local-stdio-mcp.js";
 import { toolAccessService } from "./tool-access.js";
 import { visibleIssueCondition } from "./issue-visibility.js";
 import { ISSUE_BLOCKERS_RESOLVED_WAKE_REASON } from "./issue-dependency-wakeups.js";
@@ -4616,6 +4618,20 @@ export async function revokeHeartbeatRunGatewayTokens(input: {
         isNull(toolMcpGatewayTokens.revokedAt),
       ),
     );
+  await localMcpPool.closeMatching(scope => scope.companyId === input.companyId && scope.runId === input.runId);
+  const stopped = await input.db.update(toolRuntimeSlots).set({
+    status: "stopped", stoppedAt: now, idleDeadlineAt: null, idleExpiresAt: null,
+    healthStatus: "ok", healthMessage: "Local MCP run ended.", updatedAt: now,
+  }).where(and(eq(toolRuntimeSlots.companyId, input.companyId),
+    eq(toolRuntimeSlots.runtimeKind, "local_stdio"),
+    inArray(toolRuntimeSlots.status, ["starting", "running", "idle"]),
+    sql`${toolRuntimeSlots.metadata}->>'runId' = ${input.runId}`,
+  )).returning({ id: toolRuntimeSlots.id });
+  for (const slot of stopped) await logActivity(input.db, {
+    companyId: input.companyId, actorType: "system", actorId: "tool-runtime-supervisor",
+    action: "tool_runtime_slot.stopped", entityType: "tool_runtime_slot", entityId: slot.id,
+    runId: input.runId, details: { reason: "run_ended" },
+  });
 }
 
 export async function buildPaperclipRuntimeMcpServers(input: {

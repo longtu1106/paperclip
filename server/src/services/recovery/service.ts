@@ -1,4 +1,5 @@
 import { isAiAuthenticationBlocked } from "../ai-auth-failure.js";
+import { transferQuotaFailedIssue } from "./quota-agent-fallback.js";
 import { hasCommittedNativePlanWait } from "../native-runtime/native-plan-wait.js";
 import { isNativeWorkspaceExportRepairCause } from "@paperclipai/shared";
 import { settleSlackConversation } from "../slack-conversation-lifecycle.js";
@@ -4743,6 +4744,25 @@ export function recoveryService(
         }
 
         if (adapterFailureClassification.kind === "provider_quota") {
+          const transferred = await transferQuotaFailedIssue(db, {
+            companyId: issue.companyId, issueId: issue.id,
+            sourceRunId: latestRun.id, retryAt: adapterFailureClassification.retryAt,
+          });
+          if (transferred) {
+            // The todo assignment persists before dispatch. Assigned-todo recovery
+            // retries the wake after a crash or queue admission failure.
+            await deps.enqueueWakeup(transferred.agentId, {
+              source: "assignment", triggerDetail: "system", reason: "issue_assigned",
+              idempotencyKey: `quota-fallback:${latestRun.id}`,
+              issueStateGuard: { statuses: ["todo"], assigneeAgentId: transferred.agentId },
+              payload: { issueId: issue.id, quotaFallbackSourceRunId: latestRun.id },
+              contextSnapshot: { issueId: issue.id, taskId: issue.id,
+                quotaFallbackSourceRunId: latestRun.id, source: "recovery.quota_fallback" },
+              requestedByActorType: "system", requestedByActorId: null,
+            });
+            result.issueIds.push(issue.id);
+            continue;
+          }
           const monitored = await scheduleProviderQuotaRecoveryMonitor({
             issue,
             latestRun,

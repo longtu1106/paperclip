@@ -56,7 +56,9 @@ export function validateConfig(config) {
       config.server.bind !== "loopback" || config.server.exposure !== "private" ||
       config.database?.mode !== "embedded-postgres" ||
       path.resolve(config.database.embeddedPostgresDataDir ?? "") !== path.join(instanceRoot, "db") ||
-      config.database.embeddedPostgresPort !== databasePort) {
+      !Number.isInteger(config.database.embeddedPostgresPort) ||
+      config.database.embeddedPostgresPort < 1024 || config.database.embeddedPostgresPort > 65535 ||
+      config.database.embeddedPostgresPort === port) {
     throw new Error("Windows profile must use its own embedded DB and local-only listener. Edit deployment separately for remote access.");
   }
   for (const target of [config.storage?.localDisk?.baseDir, config.secrets?.localEncrypted?.keyFilePath, config.database?.backup?.dir]) {
@@ -108,7 +110,13 @@ export function childEnvironment(input = process.env) {
   env.PATH = env.Path ?? env.PATH ?? "";
   delete env.Path;
   const codex = codexSelection();
-  env.PATH = [...codex.pathDirs, path.dirname(process.execPath), path.join(input.USERPROFILE ?? "", ".local", "bin"), env.PATH].join(path.delimiter);
+  // Current npm Claude packages put the native executable behind a shim.
+  // ConPTY needs claude.exe itself, which is not in npm's top-level bin path.
+  const claudeNativeDirs = [path.join(repoRoot, "data", "windows-tools", "claude-code"), ...env.PATH.split(path.delimiter)]
+    .filter(Boolean)
+    .map((directory) => path.join(directory, "node_modules", "@anthropic-ai", "claude-code", "bin"))
+    .filter((directory) => fs.existsSync(path.join(directory, "claude.exe")));
+  env.PATH = [...codex.pathDirs, path.dirname(process.execPath), path.join(input.USERPROFILE ?? "", ".local", "bin"), ...claudeNativeDirs, env.PATH].join(path.delimiter);
   // Match the official npm launcher metadata while using the native executable
   // so the adapter still recognises Codex and performs its provider hello test.
   env.CODEX_MANAGED_PACKAGE_ROOT = codex.packageRoot;
@@ -134,6 +142,10 @@ export async function portAvailable(targetPort = port) {
     server.once("error", () => resolve(false));
     server.listen(targetPort, "127.0.0.1", () => server.close(() => resolve(true)));
   });
+}
+
+function configuredDatabasePort() {
+  return validateConfig(readJson(configPath)).database.embeddedPostgresPort;
 }
 
 export function claimServer() {
@@ -207,7 +219,9 @@ async function startLocked() {
   setup();
   const before = await status();
   if (before.running) return before;
-  if (!await portAvailable() || !await portAvailable(databasePort)) throw new Error("HTTP or database port is occupied; no process was stopped.");
+  for (const [service, targetPort] of [["HTTP", port], ["database", configuredDatabasePort()]]) {
+    if (!await portAvailable(targetPort)) throw new Error(`${service} port ${targetPort} is unavailable (in use or reserved by Windows). No process was stopped. Check listeners and Windows excluded port ranges; the database port can be changed in ${configPath}.`);
+  }
   if (!fs.existsSync(tsxLoader)) throw new Error("Install the repo dependencies first.");
   validateCodex(codexSelection()); // Never silently fall back to an older Desktop/global CLI.
   let preStartupBackup;
@@ -256,7 +270,7 @@ export async function backup() {
 }
 
 async function copyOfflineInstance() {
-  if ((await status()).running || !await portAvailable(databasePort)) throw new Error("Stop the Windows instance before its complete filesystem backup.");
+  if ((await status()).running || !await portAvailable(configuredDatabasePort())) throw new Error("Stop the Windows instance before its complete filesystem backup.");
   if (!fs.existsSync(configPath)) throw new Error("No Windows instance to back up.");
   const destination = path.join(backupRoot, new Date().toISOString().replace(/[:.]/g, "-") + "-" + randomBytes(3).toString("hex"));
   const relative = path.relative(backupRoot, destination);
@@ -295,7 +309,7 @@ export async function main(args = process.argv.slice(2)) {
     return { platform: process.platform, node: process.version, nodeSupported: supportedNode(process.versions.node), cli, managedCodex,
       tsxInstalled: fs.existsSync(tsxLoader), configPresent: fs.existsSync(configPath),
       configValid: fs.existsSync(configPath) ? !!validateConfig(readJson(configPath)) : false,
-      httpPortFree: await portAvailable(), databasePortFree: await portAvailable(databasePort),
+      httpPortFree: await portAvailable(), databasePortFree: await portAvailable(configuredDatabasePort()),
       sourceBranch: spawnSync("git", ["branch", "--show-current"], { cwd: repoRoot, encoding: "utf8", windowsHide: true }).stdout?.trim(),
       sourceChanges: spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", windowsHide: true }).stdout?.split(/\r?\n/).filter(Boolean).length,
       ...await status() };

@@ -18,6 +18,7 @@ import { reconcileSafeNativeReplacements } from "./services/native-runtime/nativ
 import { reconcileAbandonedExecutionControl } from "./services/execution-control-reconciliation.js";
 import { EXECUTION_RECONCILIATION_INTERVAL_MS } from "./services/execution-control-deadline.js";
 import { connectionIntentDeliveryService } from "./services/connection-intent-delivery.js";
+import { localMcpPool } from "./services/local-stdio-mcp.js";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type RequestListener } from "node:http";
 import { resolve } from "node:path";
@@ -2006,6 +2007,7 @@ async function startServerWithDatabaseTeardown(
       logger.error({ err, signal }, "run-log in-flight mirror flush failed");
     }
 
+    await localMcpPool.closeAll();
     const appShutdown = (app as { locals?: { paperclipShutdown?: () => Promise<void> } }).locals
       ?.paperclipShutdown;
     const stopEmbeddedPostgres = embeddedPostgres && embeddedPostgresStartedByThisProcess
