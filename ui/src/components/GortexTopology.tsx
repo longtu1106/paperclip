@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { FlowSession } from "../lib/gortex-flow";
+import { sessionDisplayName, type FlowSession } from "../lib/gortex-flow";
 import { cn } from "../lib/utils";
 
 export function GortexTopology({
@@ -73,8 +73,11 @@ export function GortexTopology({
             <span className="text-xs text-muted-foreground">
               Phiên · {session.stopped ? "đã dừng" : "sự kiện gần nhất"}
             </span>
-            <span className="truncate font-mono text-xs">
-              {session.id.split(":").at(-1)?.slice(0, 16)}
+            <span
+              className="truncate text-sm font-medium"
+              title={sessionDisplayName(session)}
+            >
+              {sessionDisplayName(session)}
             </span>
           </div>
         </foreignObject>

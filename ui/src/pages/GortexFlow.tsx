@@ -1,13 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Activity,
-  ArrowRight,
-  GitBranch,
-  Pause,
-  Play,
-  RefreshCw,
-} from "lucide-react";
+import { Activity, Pause, Play, RefreshCw } from "lucide-react";
 import { gortexFlowApi } from "../api/gortex-flow";
 import { flowSessions, pathContains } from "../lib/gortex-flow";
 import { useCompany } from "../context/CompanyContext";
@@ -16,9 +9,11 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
 import { Link } from "@/lib/router";
-import { cn } from "../lib/utils";
 import { GortexSessionDetail } from "../components/GortexSessionDetail";
+import { GortexIngressMap } from "../components/GortexIngressMap";
 import { GortexTopology } from "../components/GortexTopology";
+import { GortexRepoCoverage } from "../components/GortexRepoCoverage";
+import { GortexNetwork } from "../components/GortexNetwork";
 
 const clock = (value: string) => new Date(value).toLocaleTimeString();
 
@@ -26,6 +21,7 @@ export function GortexFlow() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const [paused, setPaused] = useState(false);
+  const [mode, setMode] = useState<"graph" | "flow">("graph");
   const [source, setSource] = useState("all");
   const [repo, setRepo] = useState("");
   const [selected, setSelected] = useState("");
@@ -37,6 +33,8 @@ export function GortexFlow() {
     queryKey: ["gortex-flow", "device"],
     queryFn: gortexFlowApi.snapshot,
     refetchInterval: paused ? false : 2000,
+    refetchOnWindowFocus: !paused,
+    refetchOnReconnect: !paused,
     retry: false,
   });
   const runs = useQuery({
@@ -44,6 +42,8 @@ export function GortexFlow() {
     queryFn: () => gortexFlowApi.runs(selectedCompanyId!),
     enabled: !!selectedCompanyId,
     refetchInterval: paused ? false : 2000,
+    refetchOnWindowFocus: !paused,
+    refetchOnReconnect: !paused,
     retry: false,
   });
   const sessions = useMemo(
@@ -118,71 +118,106 @@ export function GortexFlow() {
           </Card>
         ))}
       </div>
-      <section className="space-y-3" aria-labelledby="flow-heading">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="space-y-1">
-            <h2 id="flow-heading" className="text-lg font-semibold">
-              Luồng sự kiện
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Dữ liệu hook của thiết bị · không lưu prompt, command hoặc nội
-              dung tool.
-            </p>
-          </div>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Nguồn
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
-              value={source}
-              onChange={(event) => {
-                setSource(event.target.value);
+      <div
+        className="flex items-center gap-2"
+        role="group"
+        aria-label="Chế độ hiển thị"
+      >
+        <Button
+          variant={mode === "graph" ? "default" : "outline"}
+          onClick={() => setMode("graph")}
+        >
+          Graph
+        </Button>
+        <Button
+          variant={mode === "flow" ? "default" : "outline"}
+          onClick={() => setMode("flow")}
+        >
+          Luồng chạy
+        </Button>
+      </div>
+      {mode === "graph" && (
+        <GortexNetwork snapshot={snapshot.data} runs={runs.data ?? []} />
+      )}
+      {mode === "flow" && (
+        <section className="space-y-3" aria-labelledby="flow-heading">
+          {!snapshot.error && !snapshot.isPending && (
+            <GortexIngressMap
+              events={snapshot.data?.events ?? []}
+              installed={snapshot.data?.collectorInstalled ?? false}
+              source={source}
+              onSelectSource={(value) => {
+                setSource(value);
                 setSelected("");
                 setToolId("");
               }}
-            >
-              <option value="all">Tất cả nguồn</option>
-              <option value="codex">Codex</option>
-              <option value="claude">Claude</option>
-              <option value="paperclip">Paperclip CLI</option>
-            </select>
-          </label>
-        </div>
-        {snapshot.error ? null : snapshot.isPending ? (
-          <Card className="p-6 text-sm text-muted-foreground" role="status">
-            Đang đọc sự kiện local…
-          </Card>
-        ) : !current ? (
-          <Card className="gap-3 p-6">
-            <Activity className="size-6 text-muted-foreground" />
-            <p className="font-medium">Chưa nhận sự kiện phù hợp</p>
-            <p className="text-sm text-muted-foreground">
-              {snapshot.data?.collectorInstalled
-                ? "Collector đã cài. Gửi yêu cầu tiếp theo trong Codex hoặc Claude Code local để phát hook. Phiên chỉ có MCP nhưng không phát hook sẽ không hiện ở đây."
-                : "Collector chưa được cài trên máy này. Xem hướng dẫn Gortex Flow trong docs để nối adapter advisory hiện có."}
-            </p>
-          </Card>
-        ) : (
-          <>
-            <GortexTopology
-              session={current}
-              selectedTool={toolId}
-              onSelectTool={setToolId}
             />
-            <GortexSessionDetail
-              sessions={sessions}
-              current={current}
-              toolId={toolId}
-              setSelected={setSelected}
-              setToolId={setToolId}
-            />
-          </>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Luồng trên thể hiện sự kiện agent/tool, không phải function đang thực
-          thi trong ứng dụng. “Local” có thể là desktop hoặc CLI; hook không tự
-          chứng minh được giao diện nguồn.
-        </p>
-      </section>
+          )}
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-1">
+              <h2 id="flow-heading" className="text-lg font-semibold">
+                Luồng sự kiện
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Dữ liệu hook của thiết bị · không lưu prompt, command hoặc nội
+                dung tool.
+              </p>
+            </div>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Nguồn
+              <select
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                value={source}
+                onChange={(event) => {
+                  setSource(event.target.value);
+                  setSelected("");
+                  setToolId("");
+                }}
+              >
+                <option value="all">Tất cả nguồn</option>
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+                <option value="paperclip">Paperclip CLI</option>
+              </select>
+            </label>
+          </div>
+          {snapshot.error ? null : snapshot.isPending ? (
+            <Card className="p-6 text-sm text-muted-foreground" role="status">
+              Đang đọc sự kiện local…
+            </Card>
+          ) : !current ? (
+            <Card className="gap-3 p-6">
+              <Activity className="size-6 text-muted-foreground" />
+              <p className="font-medium">Chưa nhận sự kiện phù hợp</p>
+              <p className="text-sm text-muted-foreground">
+                {snapshot.data?.collectorInstalled
+                  ? "Collector đã cài nhưng chưa nhận hook phù hợp. Client cần nạp và cho phép hook; Codex có thể yêu cầu review trong /hooks. Kết nối MCP không tự tạo sự kiện hook."
+                  : "Collector chưa được cài trên máy này. Xem hướng dẫn Gortex Flow trong docs để nối adapter advisory hiện có."}
+              </p>
+            </Card>
+          ) : (
+            <>
+              <GortexTopology
+                session={current}
+                selectedTool={toolId}
+                onSelectTool={setToolId}
+              />
+              <GortexSessionDetail
+                sessions={sessions}
+                current={current}
+                toolId={toolId}
+                setSelected={setSelected}
+                setToolId={setToolId}
+              />
+            </>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Luồng trên thể hiện sự kiện agent/tool, không phải function đang
+            thực thi trong ứng dụng. “Local” có thể là desktop hoặc CLI; hook
+            không tự chứng minh được giao diện nguồn.
+          </p>
+        </section>
+      )}
       <section className="space-y-3" aria-labelledby="paperclip-heading">
         <h2 id="paperclip-heading" className="text-lg font-semibold">
           Paperclip · run của tổ chức đang chọn
@@ -221,71 +256,16 @@ export function GortexFlow() {
           </div>
         )}
       </section>
-      <section className="space-y-3" aria-labelledby="repos-heading">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2
-            id="repos-heading"
-            className="flex items-center gap-2 text-lg font-semibold"
-          >
-            <GitBranch className="size-5" />
-            Graph coverage
-          </h2>
-          {repo && (
-            <Button variant="outline" onClick={() => setRepo("")}>
-              Bỏ lọc repo
-            </Button>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Repo → workspace từ cấu hình Gortex; chọn repo để lọc phiên. Indexed
-          là trạng thái registry, không bảo đảm daemon đã warmup hoặc graph phục
-          vụ exact checkout.
-        </p>
-        {inventory?.error && (
-          <p role="alert" className="text-sm text-destructive">
-            {inventory.error}
-          </p>
-        )}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {inventory?.repos.map((item) => (
-            <button
-              key={item.path}
-              onClick={() => {
-                setRepo(repo === item.path ? "" : item.path);
-                setSelected("");
-                setToolId("");
-              }}
-              className={cn(
-                "min-w-0 space-y-2 rounded-lg border p-4 text-left hover:bg-accent focus-visible:outline-ring",
-                repo === item.path
-                  ? "border-primary bg-accent"
-                  : "border-border",
-              )}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">
-                  {item.workspace || "Chưa gán workspace"}
-                </Badge>
-                <ArrowRight className="size-3 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">
-                  {item.stale
-                    ? "Stale"
-                    : item.indexed
-                      ? "Indexed"
-                      : "Chưa index"}
-                </span>
-              </div>
-              <p className="break-all text-sm font-medium">{item.name}</p>
-              <p className="break-all text-xs text-muted-foreground">
-                {item.path}
-              </p>
-              <p className="break-all text-xs text-muted-foreground">
-                {item.branch || "Không có branch"}
-              </p>
-            </button>
-          ))}
-        </div>
-      </section>
+      <GortexRepoCoverage
+        inventory={inventory}
+        repo={repo}
+        setRepo={(value) => {
+          setRepo(value);
+          setSelected("");
+          setToolId("");
+          setMode("flow");
+        }}
+      />
       <footer className="space-y-1 text-xs text-muted-foreground">
         <p>
           {paused

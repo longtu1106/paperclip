@@ -20,6 +20,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Gortex node categories reuse the existing brand/status palette. */
+:root {
+  --gortex-node-workspace: var(--status-task-in_progress);
+  --gortex-node-repo: var(--status-task-done);
+  --gortex-node-source: var(--status-task-in_review);
+  --gortex-node-session: var(--status-task-todo);
+  --gortex-node-tool: var(--agent-6a);
+  --gortex-node-run: var(--agent-10b);
+  --gortex-edge-quiet: var(--foreground);
+}
+
 /* Shared file tree: preserve desktop indentation and leave room for labels on
    narrow screens, including deeply nested skill packages. */
 .file-tree-row {
@@ -3408,3 +3419,7 @@ span.paperclip-mention-chip[data-mention-kind="external-object"] {
 @media (max-height: 420px) {
   .agent-setup-popover { overflow-y: auto; }
 }
+
+/* The Three.js renderer is sized by ResizeObserver, inside a bounded host. */
+.gortex-webgl-host { position: relative; overflow: hidden; }
+.gortex-webgl-host canvas { display: block; }

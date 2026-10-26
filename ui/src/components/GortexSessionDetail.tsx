@@ -1,14 +1,14 @@
 import { ArrowDown, ArrowRight } from "lucide-react";
-import type { FlowSession } from "../lib/gortex-flow";
+import {
+  sessionDisplayName,
+  toolDisplayName,
+  toolStateLabel,
+  type FlowSession,
+} from "../lib/gortex-flow";
+import { GortexShellPreview } from "./GortexShellPreview";
 import { Badge } from "./ui/badge";
 import { Card } from "./ui/card";
 import { cn } from "../lib/utils";
-const states = {
-  running: "Đang chạy",
-  returned: "Đã trả về",
-  failed: "Lỗi",
-  unknown: "Chưa xác nhận",
-};
 const clock = (value: string) => new Date(value).toLocaleTimeString();
 const sourceName = (agent: string, source: string) =>
   `${agent === "codex" ? "Codex" : "Claude"} · ${source === "paperclip" ? "Paperclip CLI" : "local"}`;
@@ -62,6 +62,12 @@ export function GortexSessionDetail({
                   {clock(session.at)}
                 </span>
               </div>
+              <p
+                className="break-words text-sm font-medium"
+                title={sessionDisplayName(session)}
+              >
+                {sessionDisplayName(session)}
+              </p>
               <p className="break-all text-xs text-muted-foreground">
                 {session.cwd || "Không có đường dẫn"}
               </p>
@@ -118,11 +124,11 @@ export function GortexSessionDetail({
                     )}
                   />
                   <span className="break-all font-mono text-xs">
-                    {tool.name}
+                    {toolDisplayName(tool)}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <span>{states[tool.state]}</span>
+                  <span>{toolStateLabel(tool)}</span>
                   <span>{clock(tool.at)}</span>
                 </div>
               </button>
@@ -144,6 +150,7 @@ export function GortexSessionDetail({
           <ArrowDown className="size-4" />
           Sự kiện {currentTool ? "của tool" : "của phiên"}
         </h3>
+        {currentTool && <GortexShellPreview preview={currentTool.preview} />}
         <ol className="max-h-80 space-y-3 overflow-y-auto">
           {events.map((event) => (
             <li
@@ -165,11 +172,15 @@ export function GortexSessionDetail({
                 }
               >
                 Enrichment:{" "}
-                {event.enrich === "ok"
-                  ? "hook đã phản hồi"
-                  : event.enrich === "unavailable"
-                    ? "fallback filesystem"
-                    : "chưa rõ"}
+                {event.enrich === "skipped"
+                  ? event.shellPreview
+                    ? "bản xem trước rút gọn · không gọi enrichment"
+                    : "chỉ metadata · không gọi enrichment"
+                  : event.enrich === "ok"
+                    ? "hook đã phản hồi"
+                    : event.enrich === "unavailable"
+                      ? "fallback filesystem"
+                      : "chưa rõ"}
               </p>
             </li>
           ))}
