@@ -65,6 +65,7 @@ export function createLocalMcpPool(idleTtlMs = LOCAL_MCP_IDLE_TTL_MS) {
       scope: LocalMcpScope;
       command: string;
       args: string[];
+      cwd?: string;
       env: NodeJS.ProcessEnv;
       method: string;
       params: Record<string, unknown>;
@@ -78,7 +79,7 @@ export function createLocalMcpPool(idleTtlMs = LOCAL_MCP_IDLE_TTL_MS) {
       const key = localMcpScopeKey(input.scope);
       // Only a digest is retained; credentials never become cache keys or logs.
       const fingerprint = createHash("sha256").update(JSON.stringify([
-        input.command, input.args, Object.entries(input.env).sort(([a], [b]) => a.localeCompare(b)),
+        input.command, input.args, input.cwd, Object.entries(input.env).sort(([a], [b]) => a.localeCompare(b)),
       ])).digest("hex");
       let entry = clients.get(key);
       let retired = Promise.resolve();
@@ -88,7 +89,7 @@ export function createLocalMcpPool(idleTtlMs = LOCAL_MCP_IDLE_TTL_MS) {
       }
       if (!entry) {
         const transport = new StdioClientTransport({
-          command: input.command, args: input.args,
+          command: input.command, args: input.args, cwd: input.cwd,
           env: Object.fromEntries(Object.entries(input.env).filter((row): row is [string, string] => row[1] !== undefined)),
           stderr: "pipe", maxBufferSize: 16 * 1024 * 1024,
         });

@@ -20,6 +20,8 @@ import { extractRemoteMcpPending } from "./remote-mcp-pending.js";
 import { logger } from "../middleware/logger.js";
 import { localMcpPool, localMcpScopeKey, LOCAL_MCP_IDLE_TTL_MS, LocalMcpError } from "./local-stdio-mcp.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import {
   and,
   asc,
@@ -5060,6 +5062,15 @@ export function createToolGatewayService(
         },
       );
     }
+    const workingDirectory = input.connection.config.workingDirectory;
+    if (workingDirectory !== undefined && (
+      typeof workingDirectory !== "string" || !isAbsolute(workingDirectory)
+      || !(await stat(workingDirectory).catch(() => null))?.isDirectory()
+    )) {
+      throw new ToolGatewayHttpError(422,
+        "Local stdio workingDirectory must be an existing absolute directory",
+        "local_stdio_invalid_working_directory", { connectionId: input.connection.id });
+    }
     try {
       return await localMcpPool.request({
         scope: {
@@ -5067,6 +5078,7 @@ export function createToolGatewayService(
           agentId: input.session.agentId, runId: input.session.runId, sessionId: input.session.id,
         },
         command: input.template.command, args: input.template.args, env: input.env,
+        cwd: typeof workingDirectory === "string" ? workingDirectory : undefined,
         method: input.protocolMethod ?? "tools/call",
         params: input.protocolParams ?? { name: input.entry?.toolName, arguments: input.parameters ?? {} },
         timeoutMs: input.timeoutMs, expiresAt: input.session.expiresAt, onProcess: input.onProcess,
@@ -6239,8 +6251,16 @@ export function createToolGatewayService(
       template,
       grant,
     );
+    // Local MCP startup and provider I/O share this budget. Allow an operator to
+    // tune a slow connection without changing other tools or an explicit caller
+    // deadline; keep the existing gateway ceiling and Cognee default.
+    const configuredTimeout = connection.config.toolTimeoutMs;
+    const defaultTimeout = typeof configuredTimeout === "number"
+      && Number.isFinite(configuredTimeout) && configuredTimeout > 0
+      ? timeoutMs(configuredTimeout)
+      : template.templateId === "paperclip.cognee-cloud" ? 60_000 : ms;
     const invoke = (onProcess?: (pid: number | null) => void) => callLocalStdioMcp({ session, connection, entry, template, env, parameters, onProcess,
-      timeoutMs: useProviderDefaultTimeout && template.templateId === "paperclip.cognee-cloud" ? 60_000 : ms });
+      timeoutMs: useProviderDefaultTimeout ? defaultTimeout : ms });
     // Cognee is a bundled HTTP client. Provider failures are tool failures, not
     // crashed local processes, and must never consume slots or restart budgets.
     const result = template.templateId === "paperclip.cognee-cloud"
