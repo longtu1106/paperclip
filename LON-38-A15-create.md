@@ -1,0 +1,37 @@
+- generic [active] [ref=f4e571]:
+  - banner [ref=f4e572]:
+    - heading "Tạo Dataset" [level=2] [ref=f4e573]
+    - button "Close this dialog" [ref=f4e574] [cursor=pointer]
+  - generic [ref=f4e580]:
+    - generic [ref=f4e582]:
+      - generic [ref=f4e583]: Tên Dataset (*)
+      - textbox "Tên Dataset (*)" [ref=f4e586]
+    - paragraph [ref=f4e587]: Tên không trùng trong tổ chức, không phân biệt hoa thường. Tên đầy đủ trên Zalo tối đa 255 ký tự.
+    - generic [ref=f4e589]:
+      - generic [ref=f4e590]: Tên Dataset trên Zalo DMP
+      - textbox "Tên Dataset trên Zalo DMP" [disabled] [ref=f4e593]: "[AB]_Adtimabox__20261028"
+    - generic [ref=f4e595]:
+      - generic [ref=f4e596]: Định danh
+      - textbox "Định danh" [disabled] [ref=f4e599]: SĐT
+    - generic [ref=f4e601]:
+      - generic [ref=f4e602]: Cách xử lý khách trùng giữa Positive và Negative (*)
+      - generic [ref=f4e604] [cursor=pointer]:
+        - generic:
+          - combobox [ref=f4e606]
+          - generic [ref=f4e607]: Tự động loại khỏi cả hai nhãn
+    - paragraph [ref=f4e612]: "Áp dụng cho mỗi lần Gửi Dataset ngay. Không tự động: chọn cách xử lý từng cặp trong hộp gửi, chỉ áp dụng cho lần đó."
+    - generic [ref=f4e613]:
+      - generic [ref=f4e614]:
+        - generic [ref=f4e615]: Sắp ra mắt
+        - generic [ref=f4e618]:
+          - generic [ref=f4e619]: Ngày gửi trong tuần
+          - textbox "Ngày gửi trong tuần" [disabled] [ref=f4e622]: Sắp ra mắt
+      - generic [ref=f4e623]:
+        - generic [ref=f4e624]: Sắp ra mắt
+        - generic [ref=f4e627]:
+          - generic [ref=f4e628]: Giờ gửi (GMT+7)
+          - textbox "Giờ gửi (GMT+7)" [disabled] [ref=f4e631]: Sắp ra mắt
+  - contentinfo [ref=f4e632]:
+    - generic [ref=f4e633]:
+      - button "Hủy" [ref=f4e634] [cursor=pointer]
+      - button "Tạo Dataset" [disabled] [ref=f4e636]

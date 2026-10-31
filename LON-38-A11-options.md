@@ -1,0 +1,7 @@
+- listbox [ref=f4e549]:
+  - option "zalo-dmp-local-lon33-20261028-ui38 (Đã có phân khúc này)" [disabled] [ref=f4e550]
+  - option "zalo-dmp-qc-20261027-r07-EMPTY (Đã có phân khúc này)" [disabled] [ref=f4e553]
+  - option "zalo-dmp-qc-20261027-r07-MANUAL" [ref=f4e556] [cursor=pointer]
+  - option "zalo-dmp-qc-20261027-r07-KEEP_NEGATIVE" [ref=f4e559] [cursor=pointer]
+  - option "zalo-dmp-qc-20261027-r07-KEEP_POSITIVE" [ref=f4e562] [cursor=pointer]
+  - option "zalo-dmp-qc-20261027-r07-DROP_BOTH" [ref=f4e565] [cursor=pointer]

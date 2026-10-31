@@ -1,5 +1,5 @@
 import type { ExecutionContinuationEnvelope } from "@paperclipai/shared";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, promises as fs, type Dirent } from "node:fs";
 import os from "node:os";
@@ -141,7 +141,32 @@ export function signalRunningProcess(
   // the process exited, so escalating on it would suppress a follow-up SIGKILL.
   // `exitCode`/`signalCode` are null until the child actually closes.
   if (running.child.exitCode === null && running.child.signalCode === null) {
+    if (
+      typeof running.child.pid === "number" &&
+      terminateWindowsProcessTree(running.child.pid)
+    ) {
+      return;
+    }
     running.child.kill(signal);
+  }
+}
+
+// Windows has no process groups and Node's kill() terminates only the direct
+// child. Descendants (shells, dev servers, MCP servers) survive and keep the
+// inherited stdout/stderr pipes open, so the run never sees "close". Kill the
+// whole tree while the parent link still exists. Returns false off Windows or
+// when taskkill could not run, so callers fall back to the direct signal.
+export function terminateWindowsProcessTree(pid: number): boolean {
+  if (process.platform !== "win32" || !(pid > 0)) return false;
+  try {
+    const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+      timeout: 10_000,
+    });
+    return result.error == null && result.status === 0;
+  } catch {
+    return false;
   }
 }
 
@@ -149,6 +174,7 @@ export const runningProcesses = new Map<string, RunningProcess>();
 export const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 export const MAX_EXCERPT_BYTES = 32 * 1024;
 const TERMINAL_RESULT_SCAN_OVERLAP_CHARS = 64 * 1024;
+const CHILD_STDIO_DRAIN_AFTER_EXIT_MS = 30_000;
 const DEFAULT_PAPERCLIP_INSTANCE_ID = "default";
 const PATH_SEGMENT_RE = /^[a-zA-Z0-9_-]+$/;
 const SENSITIVE_ENV_KEY =
@@ -4923,14 +4949,39 @@ export async function runChildProcess(
           reject(new Error(msg));
         });
 
+        // "close" waits for every stdio pipe to close. A descendant that
+        // inherited stdout/stderr (a background dev server or mock started by
+        // the agent shell) keeps them open after the child exits, so "close"
+        // would never fire and the run would stay running forever. Once the
+        // child has exited, give the pipes a drain window, then detach them.
+        let stdioDrainTimer: NodeJS.Timeout | null = null;
         child.on("exit", () => {
           maybeArmTerminalResultCleanup();
+          if (stdioDrainTimer) return;
+          stdioDrainTimer = setTimeout(() => {
+            void logChain
+              .then(() =>
+                opts.onLog(
+                  "stderr",
+                  `[paperclip] child process exited but its stdout/stderr stayed open for ${Math.round(CHILD_STDIO_DRAIN_AFTER_EXIT_MS / 1000)}s ` +
+                    "(a background process it started still holds them); detaching the pipes to finish the run.\n",
+                ),
+              )
+              .catch(() => {})
+              .finally(() => {
+                child.stdin?.destroy();
+                child.stdout?.destroy();
+                child.stderr?.destroy();
+              });
+          }, CHILD_STDIO_DRAIN_AFTER_EXIT_MS);
+          stdioDrainTimer.unref?.();
         });
 
         child.on(
           "close",
           (code: number | null, signal: NodeJS.Signals | null) => {
             if (timeout) clearTimeout(timeout);
+            if (stdioDrainTimer) clearTimeout(stdioDrainTimer);
             clearTerminalCleanupTimers();
             runningProcesses.delete(runId);
             void logChain.finally(() => {

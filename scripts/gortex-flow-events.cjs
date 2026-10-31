@@ -5,8 +5,31 @@ const os = require("node:os");
 const path = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const ROOT = path.join(os.homedir(), ".gortex-flow");
+function environment(root = ROOT) {
+  try {
+    const file = path.join(root, "config.json");
+    if (fs.statSync(file).size > 65536) return {};
+    const config = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Object.fromEntries(
+      Object.entries(config.gortexEnv || {}).filter(
+        ([key, value]) =>
+          [
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "GORTEX_BINARY",
+          ].includes(key) &&
+          typeof value === "string" &&
+          path.isAbsolute(value),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
 const EVENTS = new Set([
   "SessionStart",
+  "PostCompact",
   "UserPromptSubmit",
   "PreToolUse",
   "PostToolUse",
@@ -25,12 +48,112 @@ const identifier = (value) =>
     ? value
     : null;
 
+// Explicit local opt-in: shell previews never become hook additionalContext.
+const SHELL_TOOLS = new Set([
+  "Bash",
+  "exec_command",
+  "shell_command",
+  "functions.exec_command",
+]);
+function sanitizeSnippet(value, limit) {
+  if (typeof value !== "string") return null;
+  let text = value.slice(0, 8192).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text))
+    return "[Đã ẩn khóa riêng]";
+  text = text
+    .replace(
+      /(https?:\/\/|(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis):\/\/)([^\s/@]+):([^\s/@]+)@/gi,
+      "$1[ẩn]@",
+    )
+    .replace(/\b(cookie|set-cookie|authorization)\s*:\s*[^\r\n]+/gi, "$1: [ẩn]")
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9+/_=.-]+/gi, "$1 [ẩn]")
+    .replace(
+      /([\"']?(?:[A-Z0-9_]*(?:token|password|passwd|secret|api[_-]?key|authorization|cookie|credential)[A-Z0-9_-]*)[\"']?\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)/gi,
+      "$1[ẩn]",
+    )
+    .replace(
+      /(--?(?:password|passwd|token|secret|api[_-]?key|authorization|cookie)\s+)(?:\"[^\"]*\"|'[^']*'|\S+)/gi,
+      "$1[ẩn]",
+    )
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[ẩn JWT]")
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|AKIA[A-Z0-9]{16})\b/g, "[ẩn key]")
+    .replace(/[^\S\r\n]+/g, " ")
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "")
+    .trim();
+  return text ? text.slice(0, limit) : null;
+}
+function shellPreview(input, enabled) {
+  const tool = input.tool_name || input.toolName;
+  if (!enabled || !SHELL_TOOLS.has(tool)) return null;
+  let args = input.tool_input || input.inputs;
+  if (typeof args === "string" && args.length <= 16384) {
+    try {
+      args = JSON.parse(args);
+    } catch {
+      args = null;
+    }
+  }
+  const response = input.tool_response || input.response;
+  const rawCommand =
+    args && typeof args === "object" ? (args.command ?? args.cmd) : null;
+  // Reading credential files/dumps is not suitable for preview capture.
+  const sensitive =
+    typeof rawCommand === "string" &&
+    /(?:\.env(?:\b|[.])|id_rsa|id_ed25519|credentials|\.pem\b|pg_dump|mongodump)/i.test(
+      rawCommand,
+    );
+  let rawOutput =
+    typeof response === "string"
+      ? response
+      : response && typeof response === "object"
+        ? [response.stdout, response.stderr, response.output]
+            .filter((value) => typeof value === "string")
+            .join("\n")
+        : null;
+  const exit =
+    response && typeof response === "object"
+      ? (response.exit_code ?? response.exitCode ?? response.returnCode)
+      : null;
+  const command = sensitive
+    ? "[Đã ẩn lệnh đọc dữ liệu nhạy cảm]"
+    : sanitizeSnippet(rawCommand, 200);
+  const output =
+    typeof rawCommand !== "string"
+      ? null
+      : sensitive
+        ? "[Đã ẩn đầu ra nhạy cảm]"
+        : sanitizeSnippet(rawOutput, 400);
+  const exitCode =
+    Number.isInteger(exit) && Math.abs(exit) <= 2147483647 ? exit : null;
+  if (!command && !output && exitCode === null) return null;
+  return {
+    command,
+    output,
+    exitCode,
+    truncated:
+      (typeof rawCommand === "string" && rawCommand.length > 200) ||
+      (typeof rawOutput === "string" && rawOutput.length > 400),
+  };
+}
+function captureShellPreview(root) {
+  try {
+    const file = path.join(root, "config.json");
+    return (
+      fs.statSync(file).size <= 65536 &&
+      JSON.parse(fs.readFileSync(file, "utf8")).captureShellPreview === true
+    );
+  } catch {
+    return false;
+  }
+}
+
 function metadata(
   raw,
   agent,
   enrich = "unknown",
   env = process.env,
   now = new Date(),
+  previewEnabled = false,
 ) {
   const input =
     typeof raw === "string" ? JSON.parse(raw.replace(/^\uFEFF/, "")) : raw;
@@ -44,6 +167,7 @@ function metadata(
       ? path.normalize(input.cwd)
       : null;
   const runId = identifier(env.PAPERCLIP_RUN_ID);
+  const preview = shellPreview(input, previewEnabled);
   return {
     id: randomUUID(),
     at: now.toISOString(),
@@ -56,8 +180,9 @@ function metadata(
     call: opaque(input.tool_use_id || input.tool_call_id || input.toolUseId),
     tool: identifier(input.tool_name || input.toolName),
     cwd,
-    // Deliberately omit tool_input, tool_response, prompts, commands and output.
-    enrich: ["ok", "unavailable", "unknown"].includes(enrich)
+    // Raw payloads remain omitted; only explicit bounded shell previews survive.
+    ...(preview ? { shellPreview: preview } : {}),
+    enrich: ["ok", "unavailable", "unknown", "skipped"].includes(enrich)
       ? enrich
       : "unknown",
   };
@@ -65,9 +190,16 @@ function metadata(
 
 function record(raw, agent, enrich, options = {}) {
   try {
-    const item = metadata(raw, agent, enrich, options.env, options.now);
-    if (!item) return false;
     const root = options.root || ROOT;
+    const item = metadata(
+      raw,
+      agent,
+      enrich,
+      options.env,
+      options.now,
+      options.captureShellPreview ?? captureShellPreview(root),
+    );
+    if (!item) return false;
     fs.mkdirSync(root, { recursive: true, mode: 0o700 });
     const oldest = new Date(Date.parse(item.at) - 7 * 86400000)
       .toISOString()
@@ -135,7 +267,23 @@ function readEvents(root = ROOT, now = new Date()) {
             call: /^[a-f0-9]{24}$/.test(item.call) ? item.call : null,
             tool: identifier(item.tool),
             cwd: typeof item.cwd === "string" ? item.cwd.slice(0, 500) : null,
-            enrich: ["ok", "unavailable"].includes(item.enrich)
+            ...(SHELL_TOOLS.has(item.tool) &&
+            item.shellPreview &&
+            typeof item.shellPreview === "object"
+              ? {
+                  shellPreview: {
+                    command: sanitizeSnippet(item.shellPreview.command, 200),
+                    output: sanitizeSnippet(item.shellPreview.output, 400),
+                    exitCode:
+                      Number.isInteger(item.shellPreview.exitCode) &&
+                      Math.abs(item.shellPreview.exitCode) <= 2147483647
+                        ? item.shellPreview.exitCode
+                        : null,
+                    truncated: item.shellPreview.truncated === true,
+                  },
+                }
+              : {}),
+            enrich: ["ok", "unavailable", "skipped"].includes(item.enrich)
               ? item.enrich
               : "unknown",
           });
@@ -152,4 +300,12 @@ function readEvents(root = ROOT, now = new Date()) {
   return items.sort((a, b) => a.at.localeCompare(b.at)).slice(-1000);
 }
 
-module.exports = { ROOT, metadata, record, readEvents };
+module.exports = {
+  ROOT,
+  metadata,
+  record,
+  readEvents,
+  environment,
+  shellPreview,
+  sanitizeSnippet,
+};

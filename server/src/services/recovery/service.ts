@@ -4549,6 +4549,19 @@ export function recoveryService(
         continue;
       }
 
+      // A pending reviewer may legitimately be waiting for a recorded prerequisite.
+      // Preserve its gate and let dependency resolution resume the review instead
+      // of repeatedly waking it and escalating a successful wait as a failure.
+      // Only persisted, unresolved dependency edges count; comment prose does not.
+      if (
+        issue.status === "in_review" &&
+        pendingExecutionState &&
+        (await existingUnresolvedBlockerIssueIds(issue.companyId, issue.id)).length > 0
+      ) {
+        result.skipped += 1;
+        continue;
+      }
+
       // A board-owned recovery action is already the durable, human-owned
       // continuation path. Generic stranded-work recovery must not race that
       // authority by launching another provider turn (most importantly after

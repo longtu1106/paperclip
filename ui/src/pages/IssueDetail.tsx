@@ -13,6 +13,7 @@ import { trackRecentProject } from "@/lib/recent-projects";
 import { Settings as ChatSettings } from "lucide-react";
 import { agentDetailHref } from "./agent-detail-navigation";
 import { ExecutionBlockerNotice } from "../components/ExecutionBlockerNotice";
+import { TaskExecutionActivity } from "../components/TaskExecutionActivity";
 import type { TaskComposerPause } from "../components/task-chat/TaskChatPausedTakeover";
 import { TaskDetailTasksPanel } from "@/components/task-detail/TaskDetailTasksPanel";
 import { EmailThreadProvider } from "../components/EmailMessageCard";
@@ -7907,6 +7908,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   : undefined
               }
             >
+              <TaskExecutionActivity issue={issue} interactions={interactions} agents={agentMap} />
               <WorkspaceExportRecovery key={issue.activeRecoveryAction?.id ?? issue.id} issueId={issue.id}
                 action={issue.activeRecoveryAction ?? null} canManage={canManageBoardRuntime} onQueued={invalidateIssueDetail} />
               {issue.executionBlocker && (

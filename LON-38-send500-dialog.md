@@ -1,0 +1,39 @@
+- generic [ref=f1e1511]:
+  - banner [ref=f1e1512]:
+    - heading "Gửi Dataset ngay" [level=2] [ref=f1e1513]
+    - button "Close this dialog" [ref=f1e1602] [cursor=pointer]
+  - generic [ref=f1e1519]:
+    - alert [ref=f1e1606]:
+      - generic [ref=f1e1610]: Không thể thực hiện yêu cầu. Vui lòng thử lại.
+    - paragraph [ref=f1e1521]: Kiểm tra lại khách hợp lệ và khách trùng trước khi gửi. Lựa chọn từng cặp chỉ áp dụng cho lần gửi này.
+    - paragraph [ref=f1e1536]: "Dự kiến: 10,000 Positive · 11,000 Negative"
+    - paragraph [ref=f1e1537]: "Khách trùng khác nhãn: 0 (0%). Còn 0 cặp chưa xử lý."
+    - generic [ref=f1e1540]:
+      - table [ref=f1e1542]:
+        - rowgroup [ref=f1e1549]:
+          - row [ref=f1e1550]:
+            - columnheader "Phân khúc" [ref=f1e1551]
+            - columnheader "Nhãn" [ref=f1e1553]
+            - columnheader "Khách hợp lệ" [ref=f1e1555]
+            - columnheader "Khách trùng" [ref=f1e1557]
+            - columnheader "Còn lại sau loại trùng" [ref=f1e1559]
+      - table [ref=f1e1565]:
+        - rowgroup [ref=f1e1572]:
+          - row [ref=f1e1573]:
+            - cell "zalo-dmp-qc-20261027-r07-exact10000" [ref=f1e1574]
+            - cell "Positive" [ref=f1e1577]
+            - cell "10,000" [ref=f1e1579]
+            - cell "0" [ref=f1e1581]
+            - cell "10,000" [ref=f1e1583]
+          - row [ref=f1e1587]:
+            - cell "zalo-dmp-qc-20261027-r07-negative11000" [ref=f1e1588]
+            - cell "Negative" [ref=f1e1591]
+            - cell "11,000" [ref=f1e1593]
+            - cell "0" [ref=f1e1595]
+            - cell "11,000" [ref=f1e1597]
+    - paragraph [ref=f1e1601]: Kiểm tra điều kiện chưa tạo lần gửi. Server kiểm tra lại khi nhận gửi và trước khi chạy.
+  - contentinfo [ref=f1e1522]:
+    - generic [ref=f1e1523]:
+      - button "Hủy" [ref=f1e1524] [cursor=pointer]
+      - button "Kiểm tra lại" [ref=f1e1526] [cursor=pointer]
+      - button "Gửi ngay" [disabled] [ref=f1e1528]

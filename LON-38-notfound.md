@@ -1,0 +1,9 @@
+- generic [ref=f3e329]:
+  - generic [ref=f3e330]:
+    - link [ref=f3e331] [cursor=pointer]:
+      - /url: /business/zalo-dmp/datasets/000000000000000000000000
+    - generic [ref=f3e334]: Chi tiết Dataset
+  - generic [ref=f3e335]:
+    - alert [ref=f3e336]:
+      - generic [ref=f3e340]: Nội dung này không còn hoặc bạn không có quyền xem. Quay lại danh sách để chọn lại.
+    - button "Tải lại" [ref=f3e343] [cursor=pointer]

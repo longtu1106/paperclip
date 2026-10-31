@@ -1,0 +1,39 @@
+- generic [active] [ref=f4e638]:
+  - banner [ref=f4e639]:
+    - heading "Thêm phân khúc vào Dataset" [level=2] [ref=f4e640]
+    - button "Close this dialog" [ref=f4e641] [cursor=pointer]
+  - generic [ref=f4e646]:
+    - generic [ref=f4e648]:
+      - generic [ref=f4e649]: Phân khúc
+      - textbox "Phân khúc" [disabled] [ref=f4e652]: zalo-dmp-qc-20261027-r07-exact10000
+    - generic [ref=f4e654]:
+      - generic [ref=f4e655]: Tên Dataset (*)
+      - generic [ref=f4e657]:
+        - generic [ref=f4e658]:
+          - combobox [ref=f4e660]
+          - generic [ref=f4e661]: Select
+        - generic [ref=f4e663] [cursor=pointer]
+    - paragraph [ref=f4e666]: Dataset đã có phân khúc này hoặc bạn không có quyền cập nhật sẽ không chọn được.
+    - generic [ref=f4e667]:
+      - button "Trang trước" [disabled] [ref=f4e668]
+      - button "Trang sau" [disabled] [ref=f4e670]
+      - button "Tạo Dataset mới" [ref=f4e672] [cursor=pointer]
+    - generic [ref=f4e675]:
+      - generic [ref=f4e676]: Nhãn (*)
+      - radiogroup "radio-group" [ref=f4e677]:
+        - generic [ref=f4e678] [cursor=pointer]:
+          - radio "Positive" [checked] [disabled] [ref=f4e680]
+          - generic [ref=f4e682]: Positive
+        - generic [ref=f4e683] [cursor=pointer]:
+          - radio "Negative" [disabled] [ref=f4e685]
+          - generic [ref=f4e687]: Negative
+    - generic [ref=f4e689]:
+      - generic [ref=f4e690]: Tôi xác nhận nhãn đã chọn là đúng
+      - generic [ref=f4e691]:
+        - switch [disabled]
+    - paragraph [ref=f4e694]: Nhãn không đổi được sau khi lưu. Chọn nhầm thì tạo Dataset mới.
+  - contentinfo [ref=f4e695]:
+    - generic [ref=f4e696]:
+      - button "Hủy" [ref=f4e697] [cursor=pointer]
+      - button "Kiểm tra lại" [disabled] [ref=f4e699]
+      - button "Thêm" [disabled] [ref=f4e701]

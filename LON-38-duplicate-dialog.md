@@ -1,0 +1,40 @@
+- generic [ref=f2e524]:
+  - banner [ref=f2e525]:
+    - heading "Tạo Dataset" [level=2] [ref=f2e526]
+    - button "Close this dialog" [ref=f2e591] [cursor=pointer]
+  - generic [ref=f2e532]:
+    - alert [ref=f2e595]:
+      - generic [ref=f2e599]: Tên Dataset đã tồn tại trong tổ chức. Vui lòng chọn tên khác.
+    - generic [ref=f2e533]:
+      - generic [ref=f2e535]:
+        - generic [ref=f2e536]: Tên Dataset (*)
+        - textbox "Tên Dataset (*)" [ref=f2e539]: ZALO-DMP-LOCAL-LON33-20261028-UI38
+      - paragraph [ref=f2e540]: Tên không trùng trong tổ chức, không phân biệt hoa thường. Tên đầy đủ trên Zalo tối đa 255 ký tự.
+      - generic [ref=f2e542]:
+        - generic [ref=f2e543]: Tên Dataset trên Zalo DMP
+        - textbox "Tên Dataset trên Zalo DMP" [disabled] [ref=f2e546]: "[AB]_Adtimabox_ZALO-DMP-LOCAL-LON33-20261028-UI38_20261028"
+      - generic [ref=f2e548]:
+        - generic [ref=f2e549]: Định danh
+        - textbox "Định danh" [disabled] [ref=f2e552]: SĐT
+      - generic [ref=f2e554]:
+        - generic [ref=f2e555]: Cách xử lý khách trùng giữa Positive và Negative (*)
+        - generic [ref=f2e557] [cursor=pointer]:
+          - generic:
+            - combobox [ref=f2e559]
+            - generic [ref=f2e560]: Tự động loại khỏi cả hai nhãn
+      - paragraph [ref=f2e565]: "Áp dụng cho mỗi lần Gửi Dataset ngay. Không tự động: chọn cách xử lý từng cặp trong hộp gửi, chỉ áp dụng cho lần đó."
+      - generic [ref=f2e566]:
+        - generic [ref=f2e567]:
+          - generic [ref=f2e568]: Sắp ra mắt
+          - generic [ref=f2e571]:
+            - generic [ref=f2e572]: Ngày gửi trong tuần
+            - textbox "Ngày gửi trong tuần" [disabled] [ref=f2e575]: Sắp ra mắt
+        - generic [ref=f2e576]:
+          - generic [ref=f2e577]: Sắp ra mắt
+          - generic [ref=f2e580]:
+            - generic [ref=f2e581]: Giờ gửi (GMT+7)
+            - textbox "Giờ gửi (GMT+7)" [disabled] [ref=f2e584]: Sắp ra mắt
+  - contentinfo [ref=f2e585]:
+    - generic [ref=f2e586]:
+      - button "Hủy" [ref=f2e587] [cursor=pointer]
+      - button "Tạo Dataset" [ref=f2e589] [cursor=pointer]

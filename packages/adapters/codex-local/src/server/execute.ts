@@ -53,6 +53,7 @@ import {
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
   DEFAULT_PAPERCLIP_CONVERSATION_PROMPT_TEMPLATE,
   joinPromptSections,
+  terminateWindowsProcessTree,
 } from "@paperclipai/adapter-utils/server-utils";
 import {
   parseLocalProcessFilesystemScope,
@@ -175,6 +176,8 @@ function signalCodexChild(
     }
   }
   if (target.pid && target.pid > 0) {
+    // Windows: kill descendants too, or they keep the run's stdio pipes open.
+    if (terminateWindowsProcessTree(target.pid)) return true;
     try {
       process.kill(target.pid, signal);
       return true;
@@ -183,6 +186,23 @@ function signalCodexChild(
     }
   }
   return false;
+}
+
+// `codex exec` runs one turn and exits right after its terminal JSONL event.
+// When it lingers (an MCP server or background shell blocking shutdown), the
+// turn result is already final, so stop the process tree instead of waiting
+// for the 30-minute inactivity monitor while the agent's run slot stays held.
+const CODEX_POST_TURN_EXIT_GRACE_MS = 120_000;
+
+function readCodexJsonlEventType(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as { type?: unknown };
+    return typeof parsed.type === "string" ? parsed.type : null;
+  } catch {
+    return null;
+  }
 }
 
 function hasNonEmptyEnvValue(env: Record<string, string>, key: string): boolean {
@@ -1274,6 +1294,52 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       let monitorLogPromise: Promise<unknown> | null = null;
       const processActivityMonitor: { current: CodexProcessActivityMonitorHandle | null } = { current: null };
       const resolvedMonitorTimeoutMs = monitorResolution.mode === "disabled" ? null : monitorResolution.timeoutMs;
+      let postTurnExitTimer: ReturnType<typeof setTimeout> | null = null;
+      let postTurnExitForced = false;
+      let postTurnTerminalType: string | null = null;
+      let stdoutLineCarry = "";
+      const clearPostTurnExitTimer = () => {
+        if (postTurnExitTimer) {
+          clearTimeout(postTurnExitTimer);
+          postTurnExitTimer = null;
+        }
+      };
+      const notePostTurnStdout = (chunk: string) => {
+        if (executionTargetIsRemote || postTurnExitForced) return;
+        const lines = (stdoutLineCarry + chunk).split(/\r?\n/);
+        stdoutLineCarry = lines.pop() ?? "";
+        if (stdoutLineCarry.length > 64 * 1024) stdoutLineCarry = "";
+        for (const line of lines) {
+          const type = readCodexJsonlEventType(line);
+          if (type === "turn.started") {
+            clearPostTurnExitTimer();
+            postTurnTerminalType = null;
+          }
+          if (type !== "turn.completed" && type !== "turn.failed") continue;
+          postTurnTerminalType = type;
+          if (postTurnExitTimer) continue;
+          postTurnExitTimer = setTimeout(() => {
+            postTurnExitTimer = null;
+            const target = killTarget;
+            if (!target || (target.pid == null && target.processGroupId == null)) return;
+            postTurnExitForced = true;
+            monitorLogPromise = Promise.resolve(
+              onLog(
+                "stderr",
+                `[paperclip] codex finished its turn (${type}) but did not exit within ` +
+                  `${Math.round(CODEX_POST_TURN_EXIT_GRACE_MS / 1000)}s; terminating the codex process tree and keeping the turn result.\n`,
+              ),
+            ).catch(() => {});
+            signalCodexChild(target, "SIGTERM");
+            sigkillTimer = setTimeout(() => {
+              sigkillTimer = null;
+              signalCodexChild(target, "SIGKILL");
+            }, CODEX_OUTPUT_INACTIVITY_MONITOR_SIGTERM_GRACE_MS);
+            sigkillTimer.unref?.();
+          }, CODEX_POST_TURN_EXIT_GRACE_MS);
+          postTurnExitTimer.unref?.();
+        }
+      };
 
       const monitor =
         monitorResolution.mode === "disabled"
@@ -1352,6 +1418,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           onLog: async (stream, chunk) => {
             monitor?.noteOutputChunk(stream, chunk);
             if (stream === "stdout") {
+              notePostTurnStdout(chunk);
               await accountingLog(stream, chunk);
               return;
             }
@@ -1365,9 +1432,19 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         });
         await accountingLog.flush();
         const cleanedStderr = stripCodexRolloutNoise(proc.stderr);
+        // The turn already reported its terminal event; the exit status only
+        // reflects the forced stop, so classify the run by the turn itself.
+        const postTurnExit =
+          postTurnExitForced &&
+          postTurnTerminalType === "turn.completed" &&
+          !monitorFired &&
+          !proc.timedOut
+            ? { exitCode: 0, signal: null }
+            : {};
         return {
           proc: {
             ...proc,
+            ...postTurnExit,
             stderr: cleanedStderr,
           },
           rawStderr: proc.stderr,
@@ -1383,6 +1460,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             : { fired: false as const },
         };
       } finally {
+        clearPostTurnExitTimer();
         processActivityMonitor.current?.stop();
         monitor?.stop();
         if (sigkillTimer) {

@@ -14,10 +14,10 @@ const adapter =
 const original = fs.readFileSync(adapter, "utf8");
 if (
   !original.includes("function runHook(") ||
-  !original.includes("--mode=enrich")
+  !original.includes("GORTEX_HOOK_MODE = 'metadata-only'")
 ) {
   throw new Error(
-    "Expected the installed Gortex advisory adapter; no files changed.",
+    "Install the optimized advisory adapter from the fallback kit first; no files changed.",
   );
 }
 const oldLine =
@@ -25,14 +25,11 @@ const oldLine =
 const block = `// gortex-flow:start
     const raw = fs.readFileSync(0, 'utf8');
     const agent = arg ? arg.slice(8) : 'codex';
-    let enrich = 'unavailable';
-    const result = runHook(raw, agent, (...args) => {
-      const response = spawnSync(...args);
-      enrich = !response.error && !response.signal && response.status === 0 ? 'ok' : 'unavailable';
-      return response;
-    });
+    let flow;
+    try { flow = require(path.join(os.homedir(), '.gortex-flow', 'hook-events.cjs')); } catch {}
+    const result = runHook(raw, agent);
     if (process.env.GORTEX_FLOW_DISABLED !== '1') {
-      try { require(path.join(os.homedir(), '.gortex-flow', 'hook-events.cjs')).record(raw, agent, enrich); }
+      try { flow?.record(raw, agent, 'skipped'); }
       catch { /* Optional observation must never block an authorized tool. */ }
     }
     // gortex-flow:end`;
@@ -54,6 +51,34 @@ if (updated !== original) {
   fs.writeFileSync(adapter, updated);
 }
 fs.copyFileSync(collector, path.join(root, "hook-events.cjs"));
+const configFile = path.join(root, "config.json");
+const config = fs.existsSync(configFile)
+  ? JSON.parse(fs.readFileSync(configFile, "utf8"))
+  : {};
+const paths = Object.fromEntries(
+  ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "GORTEX_BINARY"]
+    .filter(
+      (key) =>
+        typeof process.env[key] === "string" &&
+        path.isAbsolute(process.env[key]),
+    )
+    .map((key) => [key, process.env[key]]),
+);
+fs.writeFileSync(
+  configFile,
+  JSON.stringify(
+    {
+      ...config,
+      ...(process.argv.includes("--shell-preview")
+        ? { captureShellPreview: true }
+        : {}),
+      gortexEnv: { ...config.gortexEnv, ...paths },
+    },
+    null,
+    2,
+  ) + "\n",
+  { mode: 0o600 },
+);
 console.log(
   JSON.stringify({
     adapter,
